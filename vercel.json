@@ -1,0 +1,21 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/ingest-weekly",
+      "schedule": "0 8 * * 2"
+    },
+    {
+      "path": "/api/cron/compute-projections",
+      "schedule": "30 8 * * 2"
+    },
+    {
+      "path": "/api/cron/compute-rankings",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/refine",
+      "schedule": "30 9 * * *"
+    }
+  ]
+}

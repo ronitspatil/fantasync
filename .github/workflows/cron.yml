@@ -1,0 +1,70 @@
+name: Scheduled jobs
+
+# Replaces Vercel Cron (Hobby caps crons at 2, and Vercel Cron only sends GET while these
+# routes are POST-only). Each job POSTs a deployed cron endpoint with the shared bearer token.
+#
+# Requires two repo-level settings (Settings → Secrets and variables → Actions):
+#   • secret   CRON_SECRET   — same value as the Vercel env var
+#   • variable APP_BASE_URL  — production origin, no trailing slash, e.g. https://fantasync.vercel.app
+#
+# Schedules are UTC (same as the old vercel.json). GitHub may delay scheduled runs by a few
+# minutes under load, and disables schedules after 60 days of no repo activity.
+
+on:
+  schedule:
+    - cron: "0 8 * * 2"   # Tue 08:00 UTC — ingest weekly stats
+    - cron: "30 8 * * 2"  # Tue 08:30 UTC — compute weekly projections
+    - cron: "0 9 * * *"   # daily 09:00 UTC — recompute season-long rankings
+    - cron: "30 9 * * *"  # daily 09:30 UTC — AI news refiner
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run manually"
+        type: choice
+        required: true
+        options:
+          - ingest-weekly
+          - compute-projections
+          - compute-rankings
+          - refine
+
+jobs:
+  ingest-weekly:
+    if: github.event.schedule == '0 8 * * 2' || github.event.inputs.job == 'ingest-weekly'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/cron/ingest-weekly
+        run: |
+          curl -fsS --max-time 330 -X POST \
+            "${{ vars.APP_BASE_URL }}/api/cron/ingest-weekly" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  compute-projections:
+    if: github.event.schedule == '30 8 * * 2' || github.event.inputs.job == 'compute-projections'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/cron/compute-projections
+        run: |
+          curl -fsS --max-time 330 -X POST \
+            "${{ vars.APP_BASE_URL }}/api/cron/compute-projections" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  compute-rankings:
+    if: github.event.schedule == '0 9 * * *' || github.event.inputs.job == 'compute-rankings'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/cron/compute-rankings
+        run: |
+          curl -fsS --max-time 330 -X POST \
+            "${{ vars.APP_BASE_URL }}/api/cron/compute-rankings" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  refine:
+    if: github.event.schedule == '30 9 * * *' || github.event.inputs.job == 'refine'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/cron/refine
+        run: |
+          curl -fsS --max-time 90 -X POST \
+            "${{ vars.APP_BASE_URL }}/api/cron/refine" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"

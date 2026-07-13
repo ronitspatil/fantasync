@@ -2,7 +2,8 @@
 // calls the underlying engine functions directly rather than round-tripping through the
 // CRON_SECRET-protected cron endpoints. Same work, different auth surface.
 export const fetchCache = "force-no-store"
-export const maxDuration = 300
+// Capped at 60 — Vercel Hobby's ceiling. On Pro this can go up to 300 for the heavier jobs.
+export const maxDuration = 60
 
 import { isAdminRequest } from "@/lib/admin-auth"
 import { ingestWeekly } from "@/lib/datasources/ingest"

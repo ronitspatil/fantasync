@@ -2,7 +2,8 @@
 // Reads ingested stats/lines from Supabase, blends with the Sleeper baseline, writes to
 // player_projections. Run after ingest-weekly.
 export const fetchCache = "force-no-store"
-export const maxDuration = 300
+// Capped at 60 — Vercel Hobby's ceiling. On Pro this can go up to 300.
+export const maxDuration = 60
 
 import { computeProjections } from "@/lib/engine/compute-projections"
 

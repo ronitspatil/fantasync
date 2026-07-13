@@ -3,7 +3,8 @@
 // and upserts into player_rankings. Run after compute-projections (season projections are the
 // input; the projections cron keeps in-season data fresh once the season is live).
 export const fetchCache = "force-no-store"
-export const maxDuration = 300
+// Capped at 60 — Vercel Hobby's ceiling. On Pro this can go up to 300.
+export const maxDuration = 60
 
 import { computeSeasonRankings } from "@/lib/engine/compute-rankings"
 

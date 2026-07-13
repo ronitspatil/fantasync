@@ -3,7 +3,8 @@
 // manually with the CRON_SECRET bearer token. Long-running + writes a lot; keep off
 // the fetch cache and allow a generous duration.
 export const fetchCache = "force-no-store"
-export const maxDuration = 300
+// Capped at 60 — Vercel Hobby's ceiling. This job is the heaviest; on Pro raise to 300.
+export const maxDuration = 60
 
 import { ingestWeekly } from "@/lib/datasources/ingest"
 

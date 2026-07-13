@@ -38,18 +38,16 @@ configured in the Vercel project for the deploy and Cron jobs to run.
 ## Ranking pipeline
 
 The served board is a three-layer composition (base quant value → AI news adjustments →
-admin overrides), materialized into `player_rankings` and kept fresh by scheduled jobs in
-[.github/workflows/cron.yml](.github/workflows/cron.yml), which POST the `/api/cron/*`
-endpoints with the `CRON_SECRET` bearer token:
+admin overrides), materialized into `player_rankings` and kept fresh by the pipeline jobs:
 
-- **Tue 08:00 UTC** — ingest weekly stats
-- **Tue 08:30 UTC** — compute weekly projections
-- **Daily 09:00 UTC** — recompute season-long rankings (re-pulls Sleeper season projections)
-- **Daily 09:30 UTC** — AI news refiner pass
+- **ingest-weekly** — refresh ID crosswalk, schedules/Vegas lines, weekly stats
+- **compute-projections** — blend ingested data into weekly projections
+- **compute-rankings** — recompute season-long rankings (re-pulls Sleeper season projections)
+- **refine** — AI news refiner pass
 
-The workflow needs a repo secret `CRON_SECRET` (matching the Vercel env) and a repo variable
-`APP_BASE_URL` (the production origin). Each job can also be run on demand via the Actions tab
-(**Run workflow** → pick a job).
+Each job is exposed two ways: a `CRON_SECRET`-protected `POST /api/cron/*` endpoint for an
+external scheduler, and a one-click button in the `/admin` **Settings** tab (cookie-auth) for
+running them on demand. Pick whichever scheduling approach fits your Vercel plan.
 
 Both the public Players panel and the `/admin` editor read this same board, so what admins
 curate is exactly what users see.

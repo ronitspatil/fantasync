@@ -73,7 +73,7 @@ export function SyncLeague() {
   const synced = status === "synced" && user
   const label = synced ? user.display_name : status === "loading" ? "Syncing…" : "Sync League"
   const triggerClassName = cn(
-    "flex items-center gap-2 h-10 px-4 rounded-full text-sm font-medium transition-colors",
+    "flex shrink-0 items-center gap-2 h-9 px-3 md:h-10 md:px-4 rounded-full text-sm font-medium transition-colors",
     synced
       ? "bg-[#1A1A1A] text-white hover:bg-[#242424] border border-[#2A2A2A]"
       : "bg-[#a5f3fc] text-black hover:bg-[#7fe3f0]",
@@ -85,7 +85,7 @@ export function SyncLeague() {
       ) : (
         <Link2 className="h-4 w-4" />
       )}
-      <span className="max-w-[140px] truncate">{label}</span>
+      <span className="max-w-[92px] truncate sm:max-w-[140px]">{label}</span>
       {synced && league && (
         <span className="hidden lg:inline text-[#919191] font-normal">· {league.name}</span>
       )}

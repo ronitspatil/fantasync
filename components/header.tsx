@@ -21,11 +21,11 @@ export function Header() {
   const pfp = synced ? avatarUrl(user.avatar, true) : null
 
   return (
-    <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between p-6 bg-black/10 backdrop-blur-[120px]">
-      <div className="flex items-center gap-2.5">
+    <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between gap-3 px-4 py-4 md:p-6 bg-black/10 backdrop-blur-[120px]">
+      <div className="flex min-w-0 items-center gap-2.5">
         <FinbroLogo className="text-white h-10 w-auto" />
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 md:gap-3">
         <SyncLeague />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

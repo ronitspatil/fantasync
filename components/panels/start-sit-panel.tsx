@@ -22,7 +22,7 @@ import { runWorkflow } from "@/lib/workflows-client"
 import { cn } from "@/lib/utils"
 
 function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("bg-[#0D0D0D] rounded-2xl p-6", className)}>{children}</div>
+  return <div className={cn("bg-[#0D0D0D] rounded-2xl p-4 sm:p-6", className)}>{children}</div>
 }
 
 const MAX_SELECTED = 3

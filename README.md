@@ -10,7 +10,7 @@ served ranking board.
 - **Supabase** (Postgres) for the materialized ranking board, projections, overrides, and news
 - **Vitest** for the engine unit tests
 - **pnpm** for package management
-- Deployed on **Vercel** (with Cron jobs for the weekly/daily recompute pipeline)
+- Deployed on **Vercel** (`main` → production, `staging` → preview)
 
 ## Getting started
 
@@ -33,7 +33,31 @@ pnpm dev                     # http://localhost:3000
 ## Environment
 
 See [.env.example](.env.example) for the required variables. The same set must be
-configured in the Vercel project for the deploy and Cron jobs to run.
+configured in the Vercel project for the deploy to run.
+
+## Branching & deploys
+
+Two long-lived branches:
+
+| Branch | Role | Vercel deploy |
+| --- | --- | --- |
+| `main` | Production — always deployable | **Production** (the live domain) |
+| `staging` | Integration / pre-prod — validated before release | **Preview** (a stable `…-staging.vercel.app` URL) |
+
+Flow:
+
+1. Branch off `staging` for a change: `git switch staging && git pull && git switch -c feat/thing`.
+2. Open a PR into `staging`. Vercel builds a preview for the PR; merging updates the staging URL.
+3. Verify on staging. To release, open a PR from `staging` into `main` (or fast-forward
+   `main` to `staging`) — merging deploys to production.
+4. Keep `staging` current with `main` after a hotfix: merge `main` back into `staging` so they
+   don't diverge.
+
+Hotfixes may branch off `main` directly, but merge the fix back into `staging` too.
+
+Nothing should be pushed straight to `main` — protect it in **GitHub → Settings → Branches**
+(require a PR, and optionally require the Vercel check to pass) so production only changes
+through a reviewed merge.
 
 ## Ranking pipeline
 

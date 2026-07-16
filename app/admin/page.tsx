@@ -16,12 +16,13 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2 } from "lucide-react"
+import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2, Activity } from "lucide-react"
 import { valueForSlot, assignOverallTiers } from "@/lib/engine/compose-rankings"
 import { computeValueScoreScale, valueToScore, scoreToValue, type ValueScoreScale } from "@/lib/engine/value-score"
 import type { AdminRankingRow } from "@/app/api/admin/rankings/route"
 import type { AdminProjectionRow } from "@/app/api/admin/projections/route"
 import type { NewsItem } from "@/app/api/admin/news/route"
+import type { SleeperUsageResponse } from "@/app/api/admin/sleeper-usage/route"
 import { cn } from "@/lib/utils"
 
 const SEASON = 2026
@@ -183,7 +184,81 @@ function Settings() {
       </section>
 
       <CronRunners />
+
+      <SleeperUsage />
     </div>
+  )
+}
+
+// Today's real upstream Sleeper API usage — the count of requests that actually hit Sleeper
+// (cache misses), tallied server-side by the sleeperFetch wrapper. Cache hits never get counted.
+function SleeperUsage() {
+  const [data, setData] = useState<SleeperUsageResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setErr(null)
+    try {
+      const res = await fetch("/api/admin/sleeper-usage")
+      const d = await res.json()
+      if (res.ok) setData(d)
+      else setErr(d.error ?? "Failed to load")
+    } catch {
+      setErr("Failed to load")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  return (
+    <section>
+      <div className="mb-1 flex items-center gap-2">
+        <Activity className="h-4 w-4 text-[#a5f3fc]" />
+        <h2 className="text-sm font-semibold text-white">Sleeper API usage</h2>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="ml-auto flex items-center gap-1.5 rounded-md border border-[#1F1F1F] px-2 py-1 text-xs text-[#919191] hover:border-[#a5f3fc] hover:text-white disabled:opacity-50"
+        >
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
+          Refresh
+        </button>
+      </div>
+      <p className="mb-3 text-xs text-[#919191]">
+        Real requests that hit Sleeper today (US Eastern){data?.day ? ` · ${data.day}` : ""}. Cache hits
+        aren&apos;t counted — most page loads are served from cache.
+      </p>
+      {err ? (
+        <p className="text-xs text-[#f87171]">Error: {err}</p>
+      ) : data ? (
+        <div className="rounded-lg border border-[#1F1F1F] p-4">
+          <div className="mb-3 flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-white">{data.total.toLocaleString()}</span>
+            <span className="text-xs text-[#6b6b6b]">request{data.total === 1 ? "" : "s"} today</span>
+          </div>
+          {data.endpoints.length > 0 ? (
+            <ul className="space-y-1">
+              {data.endpoints.map((e) => (
+                <li key={e.endpoint} className="flex items-center justify-between gap-4 text-xs">
+                  <span className="truncate font-mono text-[#919191]">{e.endpoint}</span>
+                  <span className="tabular-nums text-white">{e.count.toLocaleString()}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-[#6b6b6b]">No Sleeper requests recorded yet today.</p>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-[#6b6b6b]">Loading…</p>
+      )}
+    </section>
   )
 }
 

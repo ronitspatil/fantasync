@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 const SLEEPER = "https://api.sleeper.app/v1"
 import { cached } from "@/lib/server-cache"
 import { rateLimit } from "@/lib/rate-limit"
@@ -21,7 +22,7 @@ export async function GET(
 
     const results = await Promise.all(
       weeks.map(async (n) => {
-        const res = await fetch(`${SLEEPER}/league/${leagueId}/transactions/${n}`, {
+        const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/transactions/${n}`, {
           next: { revalidate: 120 },
         })
         if (!res.ok) return [] as unknown[]

@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 const SLEEPER = "https://api.sleeper.app/v1"
 import { cached } from "@/lib/server-cache"
 import { rateLimit } from "@/lib/rate-limit"
@@ -14,7 +15,7 @@ export async function GET(
 
   const { leagueId, week } = await params
   const data = await cached(`matchups:${leagueId}:${week}`, MATCHUPS_TTL_MS, async () => {
-    const res = await fetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, {
+    const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, {
       next: { revalidate: 120 },
     })
     if (!res.ok) throw new Error(`matchups failed ${res.status}`)

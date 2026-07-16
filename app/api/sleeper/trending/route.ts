@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 import { cached } from "@/lib/server-cache"
 import { rateLimit } from "@/lib/rate-limit"
 
@@ -22,7 +23,7 @@ export async function GET(req: Request) {
 
   try {
     const data = await cached(cacheKey, TRENDING_TTL_MS, async () => {
-      const res = await fetch(
+      const res = await sleeperFetch(
         `${SLEEPER}/players/nfl/trending/${kind}?lookback_hours=${lookbackHours}&limit=${limit}`,
         { next: { revalidate: Math.floor(TRENDING_TTL_MS / 1000) } },
       )

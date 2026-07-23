@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 import { rateLimit } from "@/lib/rate-limit"
 
 const SLEEPER = "https://api.sleeper.app/v1"
@@ -10,9 +11,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ leagueId
 
   const { leagueId } = await params
   const [leagueRes, usersRes, rostersRes] = await Promise.all([
-    fetch(`${SLEEPER}/league/${leagueId}`, { next: { revalidate: 300 } }),
-    fetch(`${SLEEPER}/league/${leagueId}/users`, { next: { revalidate: 300 } }),
-    fetch(`${SLEEPER}/league/${leagueId}/rosters`, { next: { revalidate: 120 } }),
+    sleeperFetch(`${SLEEPER}/league/${leagueId}`, { next: { revalidate: 300 } }),
+    sleeperFetch(`${SLEEPER}/league/${leagueId}/users`, { next: { revalidate: 300 } }),
+    sleeperFetch(`${SLEEPER}/league/${leagueId}/rosters`, { next: { revalidate: 120 } }),
   ])
   if (!leagueRes.ok) return Response.json({ error: "league failed" }, { status: leagueRes.status })
   const [league, users, rosters] = await Promise.all([

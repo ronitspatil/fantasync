@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Undocumented Sleeper projections endpoint. Returns per-player projected points
 // for ppr / half-ppr / std. Wrapped defensively — if the shape ever changes,
 // callers fall back to search_rank-based ordering.
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
   try {
     // Response is ~2.7MB, over Next's fetch-cache ceiling — skip the data cache.
     const out = await cached(`projections:${season}:${week}`, PROJECTION_TTL_MS, async () => {
-      const res = await fetch(url, { cache: "no-store" })
+      const res = await sleeperFetch(url, { cache: "no-store" })
       if (!res.ok) return {}
       const arr = (await res.json()) as Array<{ player_id?: string; stats?: Record<string, number> }>
       const out: Record<string, Proj> = {}

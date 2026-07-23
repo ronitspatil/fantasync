@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Server-side fetch of Sleeper's (undocumented) projections for a week, returned as
 // sleeper_id → {ppr, half, std}. Used as the ensemble baseline anchor during projection
 // compute. Mirrors app/api/sleeper/projections but callable directly from batch jobs.
@@ -16,7 +17,7 @@ export async function fetchSleeperProjections(
   const qs = POSITIONS.map((p) => `position[]=${p}`).join("&")
   const url = `https://api.sleeper.app/projections/nfl/${season}/${week}?season_type=regular&${qs}&order_by=ppr`
 
-  const res = await fetch(url, { cache: "no-store" })
+  const res = await sleeperFetch(url, { cache: "no-store" })
   if (!res.ok) return {}
   const arr = (await res.json()) as Array<{ player_id?: string; stats?: Record<string, number> }>
 

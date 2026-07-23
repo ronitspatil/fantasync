@@ -121,28 +121,41 @@ function clamp(x: number, lo: number, hi: number): number {
 // tier dividers are identical everywhere. Input MUST already be sorted best-first (value desc).
 //   • With explicit break anchors (admin-defined — each id STARTS a new tier), tiers follow them
 //     exactly: tier 1 until the first anchor, +1 at each subsequent anchor.
-//   • Without anchors, a gap rule opens a new tier whenever value drops sharply vs the player
-//     above (matches the panel's long-standing default so the look is unchanged until edited).
+//   • Without anchors, a PROGRESSIVE value-span rule: a new tier opens once the value has dropped,
+//     since the current tier began, past an allowance that GROWS with each tier. This keeps the
+//     elite in tight tiers (small gaps up top are meaningful) and lets tiers widen naturally as
+//     deeper players taper into similar values. A big natural cliff still forces a boundary
+//     because it blows past the allowance in a single step.
+//
+// TIER_SPAN_START = the first tier's allowed value-span as a fraction of the top value.
+// TIER_SPAN_GROWTH = how much wider each successive tier may be than the one before it.
+export const TIER_SPAN_START = 0.05
+export const TIER_SPAN_GROWTH = 0.18
+
 export function assignOverallTiers(
   sortedDesc: { sleeper_id: string; value: number }[],
   breaks?: Set<string>,
 ): Map<string, number> {
   const out = new Map<string, number>()
   const useBreaks = breaks != null && breaks.size > 0
+  const top = sortedDesc.length > 0 ? sortedDesc[0].value : 0
   let tier = 1
-  let prev: number | null = null
+  let tierStartValue = top // value of the player that opened the current tier
   for (let i = 0; i < sortedDesc.length; i++) {
     const { sleeper_id, value } = sortedDesc[i]
     if (i > 0) {
       if (useBreaks) {
         if (breaks!.has(sleeper_id)) tier += 1
-      } else if (prev != null) {
-        const drop = prev - value
-        if (drop >= Math.max(2.5, Math.abs(prev) * 0.18)) tier += 1
+      } else {
+        // Allowance widens each tier, so lower tiers may span more value than the elite ones.
+        const allowed = top * TIER_SPAN_START * (1 + TIER_SPAN_GROWTH * (tier - 1))
+        if (allowed > 0 && tierStartValue - value >= allowed) {
+          tier += 1
+          tierStartValue = value
+        }
       }
     }
     out.set(sleeper_id, tier)
-    prev = value
   }
   return out
 }

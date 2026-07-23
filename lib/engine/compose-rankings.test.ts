@@ -107,7 +107,7 @@ describe("assignOverallTiers", () => {
   const sorted = [
     { sleeper_id: "a", value: 100 },
     { sleeper_id: "b", value: 99 },
-    { sleeper_id: "c", value: 50 }, // big drop from 99 → new tier under the gap rule
+    { sleeper_id: "c", value: 50 }, // big drop from 99 → new tier under the span rule
     { sleeper_id: "d", value: 49 },
   ]
 
@@ -117,6 +117,25 @@ describe("assignOverallTiers", () => {
     expect(t.get("b")).toBe(1)
     expect(t.get("c")).toBe(2)
     expect(t.get("d")).toBe(2)
+  })
+
+  it("widens the allowed tier span as tiers go deeper (progressive)", () => {
+    // top = 100 → tier 1 allows a 5.0 span, tier 2 ~5.9, tier 3 ~6.8.
+    // A 6-pt drop (93→87) breaks tier 2, but an identical 6-pt drop (87→81) does NOT break
+    // tier 3 — the allowance has grown — so c and d share a tier while b sits alone.
+    const curve = [
+      { sleeper_id: "a", value: 100 },
+      { sleeper_id: "b", value: 93 }, // drop 7 from 100 → tier 2
+      { sleeper_id: "c", value: 87 }, // drop 6 (> 5.9) → tier 3
+      { sleeper_id: "d", value: 81 }, // drop 6 (< 6.8) → still tier 3
+      { sleeper_id: "e", value: 80 }, // cumulative 7 from 87 → tier 4
+    ]
+    const t = assignOverallTiers(curve)
+    expect(t.get("a")).toBe(1)
+    expect(t.get("b")).toBe(2)
+    expect(t.get("c")).toBe(3)
+    expect(t.get("d")).toBe(3)
+    expect(t.get("e")).toBe(4)
   })
 
   it("follows explicit break anchors exactly, ignoring the gap rule", () => {

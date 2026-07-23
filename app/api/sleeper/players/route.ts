@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // The players file is ~19MB (over Next's 2MB data-cache ceiling); we keep our
 // own trimmed in-memory cache below, so opt the raw fetch out of Next's cache.
 export const fetchCache = "force-no-store"
@@ -34,7 +35,7 @@ export async function GET(req: Request) {
     return Response.json(cache.data)
   }
 
-  const res = await fetch(`${SLEEPER}/players/nfl`, { cache: "no-store" })
+  const res = await sleeperFetch(`${SLEEPER}/players/nfl`, { cache: "no-store" })
   if (!res.ok) return Response.json({ error: "players failed" }, { status: res.status })
   const raw = (await res.json()) as Record<string, Record<string, unknown>>
 

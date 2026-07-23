@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Best-effort actual fantasy points per week. Prefer Sleeper's per-player
 // season stats because they include games played and PPR/Half/Std totals.
 export const fetchCache = "force-no-store"
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
   }
 
   const data = await cached(`actuals:${season}`, ACTUALS_TTL_MS, async () => {
-    const res = await fetch(`https://api.sleeper.com/stats/nfl/regular/${season}?season_type=regular`, {
+    const res = await sleeperFetch(`https://api.sleeper.com/stats/nfl/regular/${season}?season_type=regular`, {
       cache: "no-store",
     })
     if (!res.ok) return {}
@@ -103,7 +104,7 @@ async function actualForPlayer(
   scoring: Scoring,
   id: string,
 ): Promise<number | null> {
-  const res = await fetch(
+  const res = await sleeperFetch(
     `https://api.sleeper.com/stats/nfl/player/${encodeURIComponent(id)}?season_type=regular&season=${encodeURIComponent(season)}`,
     { cache: "no-store" },
   )

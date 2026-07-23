@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 import { rateLimit } from "@/lib/rate-limit"
 
 const SLEEPER = "https://api.sleeper.app/v1"
@@ -13,7 +14,7 @@ export async function GET(req: Request) {
   if (!userId || !season) {
     return Response.json({ error: "userId and season required" }, { status: 400 })
   }
-  const res = await fetch(`${SLEEPER}/user/${userId}/leagues/nfl/${season}`, {
+  const res = await sleeperFetch(`${SLEEPER}/user/${userId}/leagues/nfl/${season}`, {
     next: { revalidate: 300 },
   })
   if (!res.ok) return Response.json({ error: "leagues failed" }, { status: res.status })

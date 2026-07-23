@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 import { rateLimit } from "@/lib/rate-limit"
 
 const SLEEPER = "https://api.sleeper.app/v1"
@@ -8,7 +9,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ username
   if (limited) return limited
 
   const { username } = await params
-  const res = await fetch(`${SLEEPER}/user/${encodeURIComponent(username)}`, {
+  const res = await sleeperFetch(`${SLEEPER}/user/${encodeURIComponent(username)}`, {
     next: { revalidate: 3600 },
   })
   if (!res.ok) return Response.json({ error: "user lookup failed" }, { status: res.status })

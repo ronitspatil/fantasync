@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Sleeper's season-long projections for a given season (e.g. the UPCOMING 2026 season).
 // Unlike weekly projections these are full-year totals with a component stat line keyed by
 // Sleeper's own stat names (pass_yd, rush_td, rec, …) — which are the SAME keys a league's
@@ -41,7 +42,7 @@ export async function GET(req: Request) {
 
   try {
     const out = await cached<SeasonProjectionPayload>(`season-proj:${season}`, TTL_MS, async () => {
-      const res = await fetch(url, { cache: "no-store" })
+      const res = await sleeperFetch(url, { cache: "no-store" })
       if (!res.ok) return { count: 0, projections: {} }
       const arr = (await res.json()) as Array<{ player_id?: string; stats?: Record<string, number> }>
       const projections: Record<string, SeasonProjection> = {}

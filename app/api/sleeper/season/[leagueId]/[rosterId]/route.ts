@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Fans out to ~2.7MB projection payloads per week — keep them out of the
 // fetch cache (over Next's 2MB ceiling) to avoid noisy cache-set failures.
 export const fetchCache = "force-no-store"
@@ -95,7 +96,7 @@ async function buildSeries({
 
 function getMatchups(leagueId: string, week: number): Promise<SeasonMatchup[]> {
   return cached(`matchups:${leagueId}:${week}`, MATCHUPS_TTL_MS, async () => {
-    const res = await fetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 300 } })
+    const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 300 } })
     if (!res.ok) return []
     return res.json() as Promise<SeasonMatchup[]>
   })
@@ -104,7 +105,7 @@ function getMatchups(leagueId: string, week: number): Promise<SeasonMatchup[]> {
 function getProjectionRows(season: string, week: number): Promise<ProjectionRow[]> {
   const qs = PROJ_POS.map((p) => `position[]=${p}`).join("&")
   return cached(`projection-rows:${season}:${week}`, PROJECTION_ROWS_TTL_MS, async () => {
-    const res = await fetch(
+    const res = await sleeperFetch(
       `https://api.sleeper.app/projections/nfl/${season}/${week}?season_type=regular&${qs}`,
       { cache: "no-store" },
     )

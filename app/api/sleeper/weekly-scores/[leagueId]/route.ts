@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Per-team weekly scores for weeks 1..upto, fanned out from Sleeper matchups server-side
 // (cached). Feeds all-play win%, recent-form, and luck-index in the power rankings.
 export const fetchCache = "force-no-store"
@@ -51,7 +52,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ leagueId
 
 function getMatchups(leagueId: string, week: number): Promise<MatchupLite[]> {
   return cached(`matchups-lite:${leagueId}:${week}`, MATCHUPS_TTL_MS, async () => {
-    const res = await fetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 300 } })
+    const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 300 } })
     if (!res.ok) return []
     return (await res.json()) as MatchupLite[]
   })

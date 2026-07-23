@@ -1,3 +1,4 @@
+import { sleeperFetch } from "@/lib/sleeper-fetch"
 // Per-week matchup pairings (roster_id pairs) for weeks 1..to, from Sleeper matchups
 // grouped by matchup_id. Feeds standings reconstruction + the playoff-odds season sim.
 export const fetchCache = "force-no-store"
@@ -41,7 +42,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ leagueId
 
 async function pairsForWeek(leagueId: string, week: number): Promise<number[][]> {
   return cached(`schedule-week:${leagueId}:${week}`, MATCHUPS_TTL_MS, async () => {
-    const res = await fetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 600 } })
+    const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 600 } })
     if (!res.ok) return []
     const rows = (await res.json()) as MatchupLite[]
     const groups = new Map<number, number[]>()

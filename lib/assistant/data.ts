@@ -11,6 +11,9 @@ import {
 import { buildValueModel } from "@/lib/engine/value"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import { contextFromSleeperLine, playerContextMult } from "@/lib/engine/context-adjust"
+import { seasonAvailabilityMult } from "@/lib/engine/availability"
+import { getFactorMap, factorMult } from "@/lib/engine/factors/store"
+import { buildSeasonSos } from "@/lib/engine/factors/schedule"
 import type { SeasonProjectionPayload } from "@/app/api/sleeper/season-projections/route"
 import type { AssistantContext, AssistantPlayerValue, AssistantValueContext } from "@/lib/assistant/state"
 
@@ -56,6 +59,13 @@ export async function buildAssistantValues(ctx: AssistantContext): Promise<Assis
   const valued: ValuedPlayer[] = []
   const rawById = new Map<string, { points: number; value: number }>()
 
+  // Season factor layer: profile prior (opportunity/efficiency/regression) + rest-of-season SoS.
+  // Both neutral for players/positions they don't cover, so the projection stands on its own.
+  const [factors, seasonSos] = await Promise.all([
+    getFactorMap(Number(ctx.season)).catch(() => new Map()),
+    buildSeasonSos(Number(ctx.season)),
+  ])
+
   for (const [id, projection] of Object.entries(payload.projections ?? {})) {
     const player = ctx.players[id]
     const position = player?.position
@@ -66,9 +76,16 @@ export async function buildAssistantValues(ctx: AssistantContext): Promise<Assis
       : scoreSleeperLine(projection.line, scoring)
     if (rawPts <= 0) continue
 
+    // Injury availability is priced ONCE here, and gently (seasonAvailabilityMult is ~1 for
+    // transient tags, only docking for genuine multi-week absences) so a banged-up elite isn't
+    // mispriced. Downstream consumers read this VORP and must not re-penalize injury.
+    const avail = seasonAvailabilityMult(player.status, player.injury_status)
     const contextMult = SPECIAL.has(position)
-      ? 1
-      : playerContextMult(contextFromSleeperLine(position, projection.line, player.age ?? null))
+      ? avail
+      : playerContextMult(contextFromSleeperLine(position, projection.line, player.age ?? null)) *
+        factorMult(factors, id) *
+        seasonSos.sos(player.team, position) *
+        avail
     const value = rawPts * contextMult
     valued.push({ id, position, value })
     rawById.set(id, { points: value, value })

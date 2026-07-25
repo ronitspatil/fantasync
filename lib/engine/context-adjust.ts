@@ -4,8 +4,9 @@
 //     which raw PPR points partially but not fully price in.
 //   * QB with a rushing/mobility profile: rushing yards add both raw production AND a floor
 //     benefit (available even in negative game scripts) that projections tend to compress.
-//   * RB over age 28: age-adjusted regression — an established prior even when the projection
-//     itself hasn't yet caught up to the decline curve for that specific player.
+//   * Aging curves: an established decline prior even when the projection hasn't caught up for a
+//     specific player. Steep and early for RB (29+), gentle and late for WR (31+) / TE (32+),
+//     and only a late-30s tail for QB — matching where each position's cliff empirically sits.
 // Bounded on the small side (single-digit percentages) so it can shift order between similar
 // players but can't overturn a real projection edge.
 
@@ -63,6 +64,15 @@ export function playerContextMult(inp: ContextInputs): number {
     const rushShare = totalOffense > 0 ? rushYards / totalOffense : 0
     const mobilityBoost = 0.035 * clamp((rushShare - 0.05) / 0.15, 0, 1)
     mult *= 1 + mobilityBoost
+
+    // QBs age gracefully; only nudge in the late-30s tail.
+    if (typeof age === "number" && age >= 37) mult *= 1 - 0.02 * Math.min(age - 36, 4)
+  } else if (position === "WR") {
+    // WR decline is real but later and gentler than RB — start at 31, floor ~-6% by 35+.
+    if (typeof age === "number" && age >= 31) mult *= 1 - 0.015 * Math.min(age - 30, 4)
+  } else if (position === "TE") {
+    // TEs peak late and hold; only fade the 32+ tail.
+    if (typeof age === "number" && age >= 32) mult *= 1 - 0.015 * Math.min(age - 31, 4)
   }
 
   return mult

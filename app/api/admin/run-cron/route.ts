@@ -9,6 +9,9 @@ import { isAdminRequest } from "@/lib/admin-auth"
 import { ingestWeekly } from "@/lib/datasources/ingest"
 import { computeProjections } from "@/lib/engine/compute-projections"
 import { computeSeasonRankings } from "@/lib/engine/compute-rankings"
+import { refreshDvp } from "@/lib/engine/dvp/store"
+import { refreshPlayerFactors } from "@/lib/engine/factors/store"
+import { logWeekCalibration } from "@/lib/engine/calibration-store"
 
 const DEFAULT_SEASON = 2026
 
@@ -33,6 +36,20 @@ export async function POST(req: Request) {
       case "compute-rankings": {
         const result = await computeSeasonRankings(origin, season)
         return Response.json({ ok: true, job, ...result })
+      }
+      case "compute-dvp": {
+        const result = await refreshDvp(season)
+        return Response.json({ ok: true, job, ...result })
+      }
+      case "compute-factors": {
+        const result = await refreshPlayerFactors(season)
+        return Response.json({ ok: true, job, ...result })
+      }
+      case "log-calibration": {
+        // Record projected-vs-actual for a completed week (defaults to week 1). Feeds the
+        // calibration report + factor-weight tuning once results exist.
+        const result = await logWeekCalibration(season, week)
+        return Response.json({ ok: true, job, week, ...result })
       }
       default:
         return Response.json({ error: `unknown job: ${job}` }, { status: 400 })

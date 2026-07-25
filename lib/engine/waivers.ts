@@ -30,7 +30,9 @@ export interface WaiverInput {
   model: ValueModel
   trendingCounts: Map<string, number>
   formSlopeOf: (id: string) => number
-  isInjured: (id: string) => boolean
+  // Rest-of-season availability multiplier (1 = fully available). Kept gentle upstream so we don't
+  // over-fade a rosterable player for a transient tag.
+  availabilityOf: (id: string) => number
   limit?: number
 }
 
@@ -41,7 +43,7 @@ export function rankPickups({
   model,
   trendingCounts,
   formSlopeOf,
-  isInjured,
+  availabilityOf,
   limit = 8,
 }: WaiverInput): WaiverPickup[] {
   const toValued = (p: WaiverPlayer): ValuedPlayer => ({ id: p.id, position: p.position, value: p.mean })
@@ -58,7 +60,9 @@ export function rankPickups({
     const vorp = Math.max(0, model.adjustedVorp(fa.position, fa.mean))
     const formSlope = formSlopeOf(fa.id)
     const trendCount = trendingCounts.get(fa.id) ?? 0
-    const injuryPenalty = isInjured(fa.id) ? 2 : 0
+    // Graduated, gentle: a fully-available player pays nothing; even an IR stash (avail ~0.85)
+    // loses only ~0.45 of score — enough to sort a healthy equal ahead, not to bury upside.
+    const injuryPenalty = 3 * (1 - Math.max(0, Math.min(1, availabilityOf(fa.id))))
     const trendBonus = Math.min(2, trendCount / 5000)
 
     // Marginal (immediate starter upgrade) dominates; standalone value + rising role +

@@ -325,6 +325,9 @@ const CRON_JOBS = [
   { path: "ingest-weekly", label: "Ingest weekly", hint: "Stats, schedules & Vegas lines" },
   { path: "compute-projections", label: "Compute projections", hint: "Run after ingest" },
   { path: "compute-rankings", label: "Compute rankings", hint: "Rebuild the base board" },
+  { path: "compute-dvp", label: "Compute DvP", hint: "Projected defense-vs-position" },
+  { path: "compute-factors", label: "Compute factors", hint: "Opportunity, efficiency, regression" },
+  { path: "log-calibration", label: "Log calibration", hint: "Projected vs actual, per completed week" },
 ] as const
 
 // Manual triggers for the data-pipeline crons, so the admin can run them on demand instead of
@@ -596,18 +599,23 @@ function Editor() {
   }, [ranked, position])
 
   // Interleave tier-break dividers into the visible list: a divider precedes any row whose tier
-  // differs from the row above it (including the first shown row).
+  // differs from the row above it (including the first shown row). The divider LABEL is renumbered
+  // densely (Tier 1, 2, 3, …) over the visible rows, so a single-position tab starts at Tier 1
+  // rather than showing the player's overall-board tier — matching the site. Break detection still
+  // uses the real overall tier (isTierStart), so anchors/drag logic are unaffected.
   const items: Item[] = useMemo(() => {
     const out: Item[] = []
     let prevTier: number | null = null
+    let localTier = 0
     for (const r of visible) {
       const t = tierMap.get(r.sleeper_id) ?? 1
       const isTierStart = t !== prevTier
       if (isTierStart) {
+        localTier += 1
         out.push({
           kind: "divider",
           id: `${BRK_PREFIX}${r.sleeper_id}`,
-          tier: t,
+          tier: localTier,
           anchorId: r.sleeper_id,
           removable: prevTier != null, // the first divider (tier 1 / top of a filtered view) can't merge up
         })
@@ -653,6 +661,33 @@ function Editor() {
     setRows((prev) =>
       prev.map((r) => (r.sleeper_id === activeId ? { ...r, value: newValue, dirty: true, cleared: false } : r)),
     )
+
+    // Repair tier anchors so a boundary stays a line BETWEEN value-positions and never silently
+    // travels with, or is crossed by, the dragged player. Without this, dropping a player at the
+    // top of a tier lands it a value just above that tier's anchor while the boundary is still
+    // pinned to the old anchor — so the player renders one tier UP. Three cases, from the pre-move
+    // structure (`items`) and the post-move order (`moved`):
+    const preIdx = items.findIndex((i) => i.id === activeId)
+    const draggedWasTierTop = items[preIdx]?.kind === "player" && (items[preIdx] as PlayerItem).isTierStart
+    const belowInOldTier = items.slice(preIdx + 1).find((i): i is PlayerItem => i.kind === "player")
+    const destDivider =
+      pos > 0 && moved[pos - 1].kind === "divider" ? (moved[pos - 1] as DividerItem) : null
+
+    if (draggedWasTierTop || destDivider) {
+      editBreaks((s) => {
+        // (1) The dragged player carries no boundary — clear any anchor it held at its old spot.
+        s.delete(activeId)
+        // (2) Keep its OLD tier alive: the player that was just below it becomes that tier's top,
+        //     unless that player already started a tier of its own.
+        if (draggedWasTierTop && belowInOldTier && !belowInOldTier.isTierStart) s.add(belowInOldTier.id)
+        // (3) If it landed at the top of a tier (directly below a divider), it becomes that tier's
+        //     new anchor so it's the TOP of that tier, not bumped into the tier above.
+        if (destDivider) {
+          if (destDivider.anchorId !== activeId) s.delete(destDivider.anchorId)
+          if (activeId !== topId) s.add(activeId)
+        }
+      })
+    }
   }
 
   function insertBreak(sleeperId: string) {

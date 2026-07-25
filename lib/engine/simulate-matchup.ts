@@ -34,7 +34,7 @@ export interface SimResult {
 // correlation between two players = λ_i·λ_j (e.g. QB·WR = 0.6·0.55 ≈ 0.33).
 const LOADING: Record<string, number> = { QB: 0.6, WR: 0.55, TE: 0.5, RB: 0.35, K: 0.4, DEF: 0 }
 
-function loading(pos: string): number {
+export function loading(pos: string): number {
   return LOADING[pos] ?? 0.3
 }
 

@@ -8,6 +8,11 @@ export interface SleeperProj {
   ppr: number
   half: number
   std: number
+  // Sleeper's own fantasy position for the player (QB/RB/WR/TE/K/DEF). Carried through so the
+  // projection compute can label players correctly even when we have no prior-week history for
+  // them yet (e.g. preseason), instead of defaulting everyone to WR.
+  position: string | null
+  team: string | null
 }
 
 export async function fetchSleeperProjections(
@@ -19,7 +24,12 @@ export async function fetchSleeperProjections(
 
   const res = await sleeperFetch(url, { cache: "no-store" })
   if (!res.ok) return {}
-  const arr = (await res.json()) as Array<{ player_id?: string; stats?: Record<string, number> }>
+  const arr = (await res.json()) as Array<{
+    player_id?: string
+    stats?: Record<string, number>
+    team?: string | null
+    player?: { position?: string | null; team?: string | null } | null
+  }>
 
   const out: Record<string, SleeperProj> = {}
   for (const row of arr) {
@@ -29,6 +39,8 @@ export async function fetchSleeperProjections(
       ppr: s.pts_ppr ?? 0,
       half: s.pts_half_ppr ?? s.pts_ppr ?? 0,
       std: s.pts_std ?? 0,
+      position: row.player?.position ?? null,
+      team: row.team ?? row.player?.team ?? null,
     }
   }
   return out

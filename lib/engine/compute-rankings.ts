@@ -17,6 +17,8 @@ import { normalizePlayerName, type Scoring } from "@/lib/sleeper"
 import { buildSeasonBoard, DEFAULT_FORMATS, type BoardPlayerMeta } from "@/lib/engine/rankings"
 import { smoothSeasonValue } from "@/lib/engine/smoothing"
 import { assignTiers } from "@/lib/engine/tiers"
+import { getFactorMap, factorMult } from "@/lib/engine/factors/store"
+import { buildSeasonSos } from "@/lib/engine/factors/schedule"
 import type { SeasonProjection } from "@/app/api/sleeper/season-projections/route"
 import type { SlimPlayer } from "@/lib/sleeper"
 
@@ -47,6 +49,17 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
     return p ? { position: p.position ?? "", name: p.name, age: p.age } : undefined
   }
 
+  // Season factor accessor: profile prior (opportunity/efficiency/regression) × rest-of-season
+  // SoS, resolved here where the team lookup lives. Neutral for players/positions not covered.
+  const [factors, seasonSos] = await Promise.all([
+    getFactorMap(season).catch(() => new Map()),
+    buildSeasonSos(season),
+  ])
+  const seasonFactorMult = (id: string): number => {
+    const p = players[id]
+    return factorMult(factors, id) * seasonSos.sos(p?.team ?? null, p?.position ?? null)
+  }
+
   // Season-long value is not tied to a played-games count in the preseason (no games yet), so
   // the smoothing taper sees gamesPlayed 0 (fully responsive) — correct for an outlook that
   // only updates as projections/market move. Once live, pass the real games-played here.
@@ -66,6 +79,7 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
       rosterPositions: fmt.rosterPositions,
       totalRosters: fmt.totalRosters,
       fpRankByName: loadFpRanks(fmt.scoringType as Scoring),
+      factorMult: seasonFactorMult,
     })
     if (!board.available) {
       results.push({ scoring_key: fmt.scoringKey, players: 0, tiers: 0 })

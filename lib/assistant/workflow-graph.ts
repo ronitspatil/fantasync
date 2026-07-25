@@ -5,6 +5,10 @@ import { rankPickups, type WaiverPlayer } from "@/lib/engine/waivers"
 import { buildTradeModel, suggestTrades, type TeamContender, type TradePlayer } from "@/lib/engine/trade-value"
 import { optimizeLineup, type ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import { simulateMatchup, type SimPlayer } from "@/lib/engine/simulate-matchup"
+import { buildMatchupDvp } from "@/lib/engine/dvp/matchup"
+import { buildWeeklyEnvironment } from "@/lib/engine/factors/schedule"
+import { getFactorMap, volatilityCv } from "@/lib/engine/factors/store"
+import { seasonAvailabilityMult } from "@/lib/engine/availability"
 import { lastRegularSeasonWeek, projValue, type Matchup, type SleeperRoster, type SlimPlayer } from "@/lib/sleeper"
 
 export type WorkflowKind = "trade_suggestions" | "waiver_pickups" | "start_sit"
@@ -181,7 +185,10 @@ async function buildWaiverPickups(ctx: AssistantContext, values: AssistantValueC
     model: values.model,
     trendingCounts,
     formSlopeOf: () => 0,
-    isInjured: (id) => values.byId.get(id)?.injured ?? false,
+    availabilityOf: (id: string) => {
+      const p = ctx.players[id]
+      return seasonAvailabilityMult(p?.status, p?.injury_status)
+    },
     limit: 24,
   })
 
@@ -212,18 +219,30 @@ async function buildWaiverPickups(ctx: AssistantContext, values: AssistantValueC
 async function buildStartSitDecision(ctx: AssistantContext, selectedIds: string[]): Promise<StartSitWorkflowResult> {
   const roster = ctx.myRoster
   if (!roster || selectedIds.length < 2) return { winByCandidate: {} }
+  const week = lastRegularSeasonWeek(ctx.bundle.league)
   const matchups = await getJSON<Matchup[]>(
     ctx.origin,
-    `/api/sleeper/matchups/${encodeURIComponent(ctx.leagueId)}/${lastRegularSeasonWeek(ctx.bundle.league)}`,
+    `/api/sleeper/matchups/${encodeURIComponent(ctx.leagueId)}/${week}`,
   ).catch(() => null)
   if (!matchups) return { winByCandidate: {} }
 
-  const weekly = await loadWeeklyProjections(ctx)
+  const [weekly, matchupDvp, environment, factors] = await Promise.all([
+    loadWeeklyProjections(ctx),
+    buildMatchupDvp(Number(ctx.season), Math.max(1, week)),
+    buildWeeklyEnvironment(Number(ctx.season), Math.max(1, week)),
+    getFactorMap(Number(ctx.season)).catch(() => new Map()),
+  ])
   const meanSd = (id: string): { mean: number; sd: number } => {
     const base = projValue(weekly[id], ctx.scoring)
     const player = ctx.players[id]
     const factor = isUnavailable(player) ? 0 : 1
-    return { mean: base * factor, sd: base * 0.4 * factor }
+    // Defense-vs-position matchup + offensive environment (implied total + weather) scale the mean.
+    const dvp = matchupDvp.mult(player?.team, player?.position)
+    const env = environment.env(player?.team, player?.position)
+    const mean = base * factor * dvp * env
+    // Real week-to-week dispersion from last season replaces the old flat 40% assumption, so a
+    // steady producer (low CV) and a boom/bust flyer (high CV) simulate with different variance.
+    return { mean, sd: mean * volatilityCv(factors, id) }
   }
 
   const mine = matchups.find((matchup) => matchup.roster_id === roster.roster_id)

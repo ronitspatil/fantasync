@@ -40,9 +40,16 @@ describe("playerContextMult", () => {
     expect(mobile / pocket).toBeLessThan(1.04)
   })
 
-  it("is neutral for WR and TE regardless of inputs", () => {
+  it("applies no role adjustment to WR and TE (below the age thresholds)", () => {
     expect(playerContextMult({ position: "WR", recYards: 1200, receptions: 90, age: 30 })).toBe(1)
-    expect(playerContextMult({ position: "TE", recYards: 800, receptions: 70, age: 32 })).toBe(1)
+    expect(playerContextMult({ position: "TE", recYards: 800, receptions: 70, age: 31 })).toBe(1)
+  })
+
+  it("fades aging WR (31+) and TE (32+) but not younger ones", () => {
+    expect(playerContextMult({ position: "WR", age: 33 })).toBeLessThan(1)
+    expect(playerContextMult({ position: "TE", age: 34 })).toBeLessThan(1)
+    expect(playerContextMult({ position: "WR", age: 27 })).toBe(1)
+    expect(playerContextMult({ position: "TE", age: 30 })).toBe(1)
   })
 
   it("extracts from Sleeper-style line", () => {

@@ -49,10 +49,16 @@ export async function computeProjections(season: number, week: number): Promise<
   }
 
   // Also project players who have a Sleeper projection but no prior history (rookies /
-  // returnees), so week-1-type cases still render.
+  // returnees, and every player in the preseason before any games are played), so week-1-type
+  // cases still render. Use Sleeper's own fantasy position for the label — falling back to "WR"
+  // only when Sleeper doesn't report one — so we don't mislabel the whole board as WR.
   for (const sleeperId of Object.keys(sleeperProj)) {
     if (!byPlayer.has(sleeperId)) {
-      byPlayer.set(sleeperId, { position: "WR", team: null, rows: [] })
+      const sp = sleeperProj[sleeperId]
+      const pos = sp.position && FANTASY_POS.has(sp.position as Pos) ? (sp.position as Pos) : "WR"
+      // Keep team null (as before): these players carry no implied-team-total context and must
+      // not be subjected to the bye-skip below. We only fix the position label here.
+      byPlayer.set(sleeperId, { position: pos, team: null, rows: [] })
     }
   }
 

@@ -141,7 +141,9 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
     const p = byId.get(playerId)
     if (!p) return 0
     const base = baseValue(p)
-    const mult = needMult(rosterId, p.position) * ageMult(rosterId, p.age) * (p.injured ? 0.9 : 1)
+    // No injury re-penalty here: availability is already priced (gently) into VORP upstream, and
+    // over-docking a merely banged-up player is exactly the mispricing we want to avoid.
+    const mult = needMult(rosterId, p.position) * ageMult(rosterId, p.age)
     return Number((base * mult).toFixed(2))
   }
 

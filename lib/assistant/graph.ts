@@ -52,25 +52,25 @@ const graph = new StateGraph(AssistantAnnotation)
     if (!state.context) return { matchedPlayers: [] }
     return { matchedPlayers: matchPlayers(state.userMessage, state.context.players) }
   })
-  .addNode("ranking_flow", (state) => {
+  .addNode("ranking_flow", async (state) => {
     if (!state.context || !state.values) return errorRecommendation("I could not load ranking data.")
-    return { recommendation: explainRanking(state.context, state.values, state.matchedPlayers) }
+    return { recommendation: await explainRanking(state.context, state.values, state.matchedPlayers) }
   })
   .addNode("waiver_flow", async (state) => {
     if (!state.context || !state.values) return errorRecommendation("I could not load waiver data.")
     return { recommendation: await findWaiverMoves(state.context, state.values) }
   })
-  .addNode("trade_flow", (state) => {
+  .addNode("trade_flow", async (state) => {
     if (!state.context || !state.values) return errorRecommendation("I could not load trade data.")
-    return { recommendation: suggestTradeIdeas(state.context, state.values) }
+    return { recommendation: await suggestTradeIdeas(state.context, state.values) }
   })
   .addNode("start_sit_flow", async (state) => {
     if (!state.context || !state.values) return errorRecommendation("I could not load start/sit data.")
     return { recommendation: await compareStartSit(state.context, state.values, state.matchedPlayers) }
   })
-  .addNode("roster_review_flow", (state) => {
+  .addNode("roster_review_flow", async (state) => {
     if (!state.context || !state.values) return errorRecommendation("I could not load roster data.")
-    return { recommendation: reviewRoster(state.context, state.values) }
+    return { recommendation: await reviewRoster(state.context, state.values) }
   })
   .addNode("compose_answer", (state) => {
     if (state.recommendation) return {}
@@ -130,7 +130,7 @@ function classifyIntent(state: typeof AssistantAnnotation.State) {
   const text = state.userMessage.toLowerCase()
   let intent: AssistantIntent = "unknown"
   if (/\b(waiver|waivers|pickup|pick up|add|drop|free agent|improve)\b/.test(text)) intent = "waiver"
-  else if (/\b(trade|offer|deal|package)\b/.test(text)) intent = "trade"
+  else if (/\b(trade|trades|trading|offer|offers|deal|deals|package|swap)\b/.test(text)) intent = "trade"
   else if (/\b(start|sit|lineup|versus| vs |compare)\b/.test(text)) intent = "start_sit"
   else if (/\b(rank|ranking|value|forecast|projection|projected|why|player)\b/.test(text)) intent = "ranking"
   else if (/\b(roster|team|grade|grades|weak|strength|depth)\b/.test(text)) intent = "roster_review"

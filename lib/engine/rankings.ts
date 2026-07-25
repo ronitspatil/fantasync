@@ -94,6 +94,10 @@ export interface SeasonBoardInput {
   rosterPlayerIds?: string[][]
   // FantasyPros rank by normalized name (market source). Optional.
   fpRankByName?: Map<string, number>
+  // Season factor multiplier per player (profile prior × rest-of-season SoS), pre-resolved by the
+  // caller (which holds the team lookup the factor/SoS need). Applied to non-K/DEF alongside the
+  // context nudge. Omitted ⇒ neutral (1.0) — keeps the pure builder usable without the DB layer.
+  factorMult?: (id: string) => number
 }
 
 export interface BoardEntry {
@@ -137,7 +141,8 @@ export function buildSeasonBoard(input: SeasonBoardInput): SeasonBoard {
     if (rawPts <= 0) continue
     const ctxMult = SPECIAL.has(pos)
       ? 1
-      : playerContextMult(contextFromSleeperLine(pos, sp.line, meta?.age ?? null))
+      : playerContextMult(contextFromSleeperLine(pos, sp.line, meta?.age ?? null)) *
+        (input.factorMult?.(id) ?? 1)
     const seasonPts = rawPts * ctxMult
     preBlend.push({ id, position: pos, value: seasonPts })
     const adp = sp.adp?.[adpKey]

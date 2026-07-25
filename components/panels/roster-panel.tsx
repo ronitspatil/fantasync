@@ -32,6 +32,7 @@ import { useEngineValues } from "@/lib/use-engine-values"
 import { useEngineProjections } from "@/lib/use-engine-projections"
 import { teamValue } from "@/lib/engine/value"
 import { rankPickups, type WaiverPlayer } from "@/lib/engine/waivers"
+import { seasonAvailabilityMult } from "@/lib/engine/availability"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import { runWorkflow } from "@/lib/workflows-client"
 import { cn } from "@/lib/utils"
@@ -313,10 +314,8 @@ function RosterContent() {
         .filter((p) => isFantasyRelevant(p.position) && !rostered.has(p.id) && valueOf(p.id) > 4)
         .map((p) => ({ id: p.id, position: p.position as string, mean: valueOf(p.id) }))
       const formSlopeOf = (id: string) => Number((weeklyEngine[id]?.components?.form_slope as number) ?? 0)
-      const isInjured = (id: string) => {
-        const s = players[id]?.injury_status
-        return Boolean(s && !["Healthy", "ACT", "Active"].includes(s))
-      }
+      const availabilityOf = (id: string) =>
+        seasonAvailabilityMult(players[id]?.status, players[id]?.injury_status)
 
       const picks = rankPickups({
         freeAgents,
@@ -325,7 +324,7 @@ function RosterContent() {
         model,
         trendingCounts: trendCounts,
         formSlopeOf,
-        isInjured,
+        availabilityOf,
         limit: 24,
       })
 

@@ -20,6 +20,10 @@ export interface NflversePlayerWeekStat {
 
 export async function fetchPlayerWeekStats(season: number): Promise<NflversePlayerWeekStat[]> {
   const res = await fetch(`${BASE}/stats_player_week_${season}.csv`, { cache: "no-store" })
+  // A season whose games haven't been played yet has no weekly-stats release asset (404).
+  // That's an empty result, not a failure — a preseason ingest should still refresh ids/schedules,
+  // and this begins returning real lines automatically once the season's first games are in.
+  if (res.status === 404) return []
   if (!res.ok) throw new Error(`nflverse stats_player_week_${season} failed (${res.status})`)
   const csv = await res.text()
 

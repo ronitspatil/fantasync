@@ -273,13 +273,20 @@ function PlayersContent() {
 
     // Preferred: the served board's overall tiers (Layer 1 default + admin-defined breaks), so
     // the site's tier dividers match the admin editor exactly. A divider precedes the first
-    // player of each tier in display order.
+    // player of each tier in display order. The labels are renumbered densely (1, 2, 3, …) over
+    // the CURRENTLY VISIBLE rows, so a single-position view (e.g. QB) starts at Tier 1 instead of
+    // showing the player's overall-board tier (Allen would otherwise read "Tier 6"). In the ALL
+    // view the served tiers are already contiguous, so this is a no-op there.
     if (served.available) {
       let prevTier: number | null = null
+      let localTier = 0
       for (const player of rows) {
         const t = served.tierOf(player.id)
         if (t == null) continue
-        if (t !== prevTier) out.set(player.id, `Tier ${t}`)
+        if (t !== prevTier) {
+          localTier += 1
+          out.set(player.id, `Tier ${localTier}`)
+        }
         prevTier = t
       }
       return out

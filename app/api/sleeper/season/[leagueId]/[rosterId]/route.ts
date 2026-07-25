@@ -5,19 +5,12 @@ export const fetchCache = "force-no-store"
 
 import { cached } from "@/lib/server-cache"
 import { rateLimit } from "@/lib/rate-limit"
+import { getLeagueWeekMatchups } from "@/lib/server/sleeper-matchups"
 
-const SLEEPER = "https://api.sleeper.app/v1"
 const PROJ_POS = ["QB", "RB", "WR", "TE", "K", "DEF"]
 const SERIES_TTL_MS = 10 * 60 * 1000
-const MATCHUPS_TTL_MS = 90 * 1000
 const PROJECTION_ROWS_TTL_MS = 30 * 60 * 1000
 const EXPENSIVE_LIMIT = { limit: 30, windowMs: 60 * 1000 }
-
-interface SeasonMatchup {
-  roster_id: number
-  points: number
-  starters: string[]
-}
 
 interface ProjectionRow {
   player_id?: string
@@ -68,7 +61,7 @@ async function buildSeries({
   return Promise.all(
     weeks.map(async (week) => {
       const [matchups, projectionRows] = await Promise.all([
-        getMatchups(leagueId, week),
+        getLeagueWeekMatchups(leagueId, week),
         season ? getProjectionRows(season, week) : Promise.resolve([]),
       ])
 
@@ -92,14 +85,6 @@ async function buildSeries({
       return { week, projected, actual }
     }),
   )
-}
-
-function getMatchups(leagueId: string, week: number): Promise<SeasonMatchup[]> {
-  return cached(`matchups:${leagueId}:${week}`, MATCHUPS_TTL_MS, async () => {
-    const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 300 } })
-    if (!res.ok) return []
-    return res.json() as Promise<SeasonMatchup[]>
-  })
 }
 
 function getProjectionRows(season: string, week: number): Promise<ProjectionRow[]> {

@@ -1,20 +1,14 @@
-import { sleeperFetch } from "@/lib/sleeper-fetch"
-// Per-week matchup pairings (roster_id pairs) for weeks 1..to, from Sleeper matchups
-// grouped by matchup_id. Feeds standings reconstruction + the playoff-odds season sim.
+// Per-week matchup pairings (roster_id pairs) for weeks 1..to, derived from the shared
+// cached matchup fetch and grouped by matchup_id. Feeds standings reconstruction + the
+// playoff-odds season sim (which needs pairings for FUTURE weeks too, not just played ones).
 export const fetchCache = "force-no-store"
 
 import { cached } from "@/lib/server-cache"
 import { rateLimit } from "@/lib/rate-limit"
+import { getLeagueWeekMatchups } from "@/lib/server/sleeper-matchups"
 
-const SLEEPER = "https://api.sleeper.app/v1"
 const TTL_MS = 30 * 60 * 1000
-const MATCHUPS_TTL_MS = 5 * 60 * 1000
 const STANDARD_LIMIT = { limit: 60, windowMs: 60 * 1000 }
-
-interface MatchupLite {
-  roster_id: number
-  matchup_id: number | null
-}
 
 export async function GET(req: Request, { params }: { params: Promise<{ leagueId: string }> }) {
   const limited = rateLimit(req, "sleeper:schedule", STANDARD_LIMIT)
@@ -41,17 +35,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ leagueId
 }
 
 async function pairsForWeek(leagueId: string, week: number): Promise<number[][]> {
-  return cached(`schedule-week:${leagueId}:${week}`, MATCHUPS_TTL_MS, async () => {
-    const res = await sleeperFetch(`${SLEEPER}/league/${leagueId}/matchups/${week}`, { next: { revalidate: 600 } })
-    if (!res.ok) return []
-    const rows = (await res.json()) as MatchupLite[]
-    const groups = new Map<number, number[]>()
-    for (const r of rows) {
-      if (r.matchup_id == null) continue
-      const g = groups.get(r.matchup_id) ?? []
-      g.push(r.roster_id)
-      groups.set(r.matchup_id, g)
-    }
-    return [...groups.values()].filter((g) => g.length === 2)
-  })
+  const rows = await getLeagueWeekMatchups(leagueId, week)
+  const groups = new Map<number, number[]>()
+  for (const r of rows) {
+    if (r.matchup_id == null) continue
+    const g = groups.get(r.matchup_id) ?? []
+    g.push(r.roster_id)
+    groups.set(r.matchup_id, g)
+  }
+  return [...groups.values()].filter((g) => g.length === 2)
 }

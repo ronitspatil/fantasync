@@ -14,7 +14,7 @@ import {
   winProb,
   rosterFpts,
   rosterFptsAgainst,
-  lastRegularSeasonWeek,
+  currentFantasyWeek,
   TARGET_SEASON,
   type LeagueBundle,
   type Matchup,
@@ -57,9 +57,14 @@ export function LeaguePanel() {
 }
 
 function LeagueContent() {
-  const { league, bundle, players, myRoster, season, seasonIsLive } = useSync()
+  const { league, bundle, players, myRoster, season, seasonIsLive, state } = useSync()
   const scoring = detectScoring(league)
-  const week = lastRegularSeasonWeek(league)
+  // The week to show/address: Week 1 in the preseason, else the live NFL week. Mirrors every
+  // other panel (players/roster/start-sit) — this used to be lastRegularSeasonWeek(league)
+  // (the schedule's LAST week, ~14, since Sleeper leaves last_scored_leg unset pre-season),
+  // which fetched and displayed the wrong week's matchup/projections/transactions entirely
+  // and drove a large chunk of avoidable Sleeper traffic fetching weeks with no data yet.
+  const week = currentFantasyWeek(state, seasonIsLive)
 
   const [matchups, setMatchups] = useState<Matchup[] | null>(null)
   const [proj, setProj] = useState<ProjMap>({})
@@ -80,14 +85,20 @@ function LeagueContent() {
   const { model, valueOf, meanSdOf, available: valuesOn } = useEngineValues(season, week)
   const [weeklyScores, setWeeklyScores] = useState<Record<string, Array<{ week: number; points: number }>>>({})
   const [schedule, setSchedule] = useState<Record<string, number[][]>>({})
+  // Full regular-season length (schedule pairings + the Monte Carlo sim need every week,
+  // including ones that haven't happened — pairings exist upfront regardless of results).
   const lastRegWeek = (league?.settings?.playoff_week_start ?? 15) - 1
+  // How many weeks could actually have a final score: strictly before the current week.
+  // Bounding weeklyScores to this (instead of the full schedule length) is what stops it
+  // from fetching ~14 weeks of nonexistent matchup data every preseason page load.
+  const scoredThroughWeek = Math.max(1, week - 1)
   const [asOfWeek, setAsOfWeek] = useState(week)
   useEffect(() => setAsOfWeek(week), [league?.league_id, week])
   useEffect(() => {
     if (!league) return
     let cancelled = false
     Promise.all([
-      sleeper.weeklyScores(league.league_id, lastRegWeek),
+      sleeper.weeklyScores(league.league_id, scoredThroughWeek),
       sleeper.schedule(league.league_id, lastRegWeek),
     ]).then(([s, sch]) => {
       if (cancelled) return
@@ -97,7 +108,7 @@ function LeagueContent() {
     return () => {
       cancelled = true
     }
-  }, [league, lastRegWeek])
+  }, [league, lastRegWeek, scoredThroughWeek])
 
   // Season Monte Carlo → playoff & championship odds as of the chosen week.
   const playoffOdds = useMemo<PlayoffOdds[]>(() => {

@@ -19,7 +19,7 @@ export { scoreSleeperLine }
 // through the same VORP/scarcity model as everything else, so the ranking is scarcity-aware
 // and format-adaptive rather than a raw points list.
 export function useSeasonOutlook(season: string, enabled: boolean, scoringOverride?: Scoring) {
-  const { league, bundle, players } = useSync()
+  const { league, bundle, players, dynastyEnabled } = useSync()
   // The viewed scoring flavor (PPR/Half/Std toggle) drives both re-scoring and which FP file.
   const scoringType = scoringOverride ?? detectScoring(league)
   const { rankByName: fpRankByName } = useFantasyProsRanks(enabled, scoringType)
@@ -66,9 +66,10 @@ export function useSeasonOutlook(season: string, enabled: boolean, scoringOverri
     // browser and the compute-rankings cron produce identical boards.
     const superflex = (league.roster_positions ?? []).some((p) => p === "SUPER_FLEX" || p === "QB_FLEX")
     const dynastyLeague =
-      (league.settings?.type ?? 0) === 2 ||
-      (league.settings?.taxi_slots ?? 0) > 0 ||
-      Boolean(league.previous_league_id)
+      dynastyEnabled &&
+      ((league.settings?.type ?? 0) === 2 ||
+        (league.settings?.taxi_slots ?? 0) > 0 ||
+        Boolean(league.previous_league_id))
 
     // Team rosters give the value model real positional demand (superflex QB usage, etc.).
     const rosterPlayerIds = (bundle?.rosters ?? []).map((r) => r.players ?? [])
@@ -97,7 +98,7 @@ export function useSeasonOutlook(season: string, enabled: boolean, scoringOverri
       available: board.available,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raw, league, bundle, players, fpRankByName, scoringType, scoring])
+  }, [raw, league, bundle, players, fpRankByName, scoringType, scoring, dynastyEnabled])
 
   return { ...result, loading }
 }

@@ -67,7 +67,7 @@ function PreseasonTrade() {
 }
 
 function TradeContent() {
-  const { league, bundle, players, myRoster } = useSync()
+  const { league, bundle, players, myRoster, dynastyEnabled } = useSync()
   // Season-long value model: 2026 projection outlook in the preseason, live engine ROS once
   // the season starts. Trade analysis is value-based, so it works year-round with no game data.
   const { model: valueModel, valueOf, available } = useSeasonValueModel()
@@ -86,10 +86,11 @@ function TradeContent() {
   )
   const dynastyLeague = useMemo(
     () =>
-      (league?.settings?.type ?? 0) === 2 ||
-      (league?.settings?.taxi_slots ?? 0) > 0 ||
-      Boolean(league?.previous_league_id),
-    [league],
+      dynastyEnabled &&
+      ((league?.settings?.type ?? 0) === 2 ||
+        (league?.settings?.taxi_slots ?? 0) > 0 ||
+        Boolean(league?.previous_league_id)),
+    [league, dynastyEnabled],
   )
 
   // Assemble the contextual trade model from every rostered player. VORP is the

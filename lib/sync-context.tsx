@@ -34,6 +34,8 @@ interface SyncContextValue {
   state: NflState | null
   season: string
   seasonIsLive: boolean
+  // Whether dynasty leagues/rankings are enabled app-wide (admin-controlled, default off).
+  dynastyEnabled: boolean
   user: SleeperUser | null
   leagues: SleeperLeague[]
   bundle: LeagueBundle | null
@@ -66,6 +68,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // Admin season-live override, fetched from the public /api/config. "auto" (default) defers to the
   // automatic isSeasonLive(league) detection; "live"/"preseason" force the mode for every user.
   const [liveOverride, setLiveOverride] = useState<"auto" | "live" | "preseason">("auto")
+  // Dynasty support toggle, fetched from the public /api/config. Off by default: dynasty leagues
+  // are hidden from the sync picker and dynasty rankings/values are not applied.
+  const [dynastyEnabled, setDynastyEnabled] = useState(false)
   // In the preseason the league dashboard, roster, start/sit, and trade show empty draft-prep
   // views, so land on Players — the TARGET_SEASON outlook is the useful surface. (State loads
   // async, so at first render this is the preseason default; live seasons keep Players too,
@@ -90,9 +95,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       try {
         const res = await fetch("/api/config")
         if (!res.ok) return
-        const d = (await res.json()) as { season_is_live?: string }
+        const d = (await res.json()) as { season_is_live?: string; dynasty_enabled?: boolean }
         if (!cancelled && (d.season_is_live === "live" || d.season_is_live === "preseason" || d.season_is_live === "auto")) {
           setLiveOverride(d.season_is_live)
+        }
+        if (!cancelled && typeof d.dynasty_enabled === "boolean") {
+          setDynastyEnabled(d.dynasty_enabled)
         }
       } catch {
         /* keep "auto" */
@@ -163,10 +171,28 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       const leagueRows = await Promise.all(
         seasons.map((s) => sleeper.leagues(u.user_id, s).catch(() => [])),
       )
+      const all = leagueRows.flat()
+      // A league instance that some newer instance points back to (via
+      // previous_league_id) is an older season of a continued league. Keep only the
+      // head of each lineage — the newest instance. This collapses a redraft league's
+      // prior seasons into its current one, and keeps a renewed dynasty/keeper league
+      // visible even when its latest season is "complete" (not yet rolled over), which
+      // the old blanket status === "complete" filter wrongly dropped.
+      const superseded = new Set<string>()
+      for (const l of all) {
+        if (l.previous_league_id) superseded.add(l.previous_league_id)
+      }
+      // Sleeper settings.type: 0 redraft, 1 keeper, 2 dynasty.
       const byId = new Map<string, SleeperLeague>()
-      for (const lg of leagueRows.flat()) {
-        if (lg.status === "complete") continue
-        byId.set(lg.league_id, lg)
+      for (const l of all) {
+        if (superseded.has(l.league_id)) continue
+        const type = l.settings?.type ?? 0
+        // Dynasty/keeper support is admin-gated (off by default) — show redraft leagues only.
+        if (!dynastyEnabled && type !== 0) continue
+        // A completed redraft head is a finished one-off the user never renewed — hide it.
+        // Keeper/dynasty leagues persist across seasons, so keep their head even when complete.
+        if (l.status === "complete" && type === 0) continue
+        byId.set(l.league_id, l)
       }
       const lg = [...byId.values()].sort(
         (a, b) => Number(b.season) - Number(a.season) || a.name.localeCompare(b.name),
@@ -174,7 +200,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setLeagues(lg)
       return lg
     },
-    [state],
+    [state, dynastyEnabled],
   )
 
   const selectLeague = useCallback(
@@ -224,6 +250,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         state,
         season,
         seasonIsLive,
+        dynastyEnabled,
         user,
         leagues,
         bundle,

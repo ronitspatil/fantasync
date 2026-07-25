@@ -7,7 +7,7 @@ const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: 'Fantasync',
-  description: 'Fantasy football platform powered by Sleeper',
+  description: 'NFL fantasy football platform powered by Sleeper',
   generator: 'v0.app',
   icons: {
     icon: [

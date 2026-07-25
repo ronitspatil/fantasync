@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2, Activity } from "lucide-react"
+import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2, Activity, Layers } from "lucide-react"
 import { valueForSlot, assignOverallTiers } from "@/lib/engine/compose-rankings"
 import { computeValueScoreScale, valueToScore, scoreToValue, type ValueScoreScale } from "@/lib/engine/value-score"
 import type { AdminRankingRow } from "@/app/api/admin/rankings/route"
@@ -120,12 +120,16 @@ function Settings() {
   const [live, setLive] = useState<"auto" | "live" | "preseason">("auto")
   const [savingLive, setSavingLive] = useState(false)
   const [liveMsg, setLiveMsg] = useState<string | null>(null)
+  const [dynasty, setDynasty] = useState(false)
+  const [savingDynasty, setSavingDynasty] = useState(false)
+  const [dynastyMsg, setDynastyMsg] = useState<string | null>(null)
 
   useEffect(() => {
     fetch("/api/admin/config")
       .then((r) => r.json())
       .then((d) => {
         if (d.season_is_live) setLive(d.season_is_live)
+        if (typeof d.dynasty_enabled === "boolean") setDynasty(d.dynasty_enabled)
       })
       .catch(() => {})
   }, [])
@@ -146,6 +150,25 @@ function Settings() {
       setLiveMsg("Save failed")
     } finally {
       setSavingLive(false)
+    }
+  }
+
+  async function saveDynasty(value: boolean) {
+    setSavingDynasty(true)
+    setDynastyMsg(null)
+    setDynasty(value)
+    try {
+      const res = await fetch("/api/admin/config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dynasty_enabled: value }),
+      })
+      const d = await res.json()
+      setDynastyMsg(res.ok ? "Saved — applies to all users" : d.error ? `Error: ${d.error}` : "Save failed")
+    } catch {
+      setDynastyMsg("Save failed")
+    } finally {
+      setSavingDynasty(false)
     }
   }
 
@@ -181,6 +204,42 @@ function Settings() {
           ))}
         </div>
         {liveMsg && <p className="mt-2 text-xs text-[#919191]">{liveMsg}</p>}
+      </section>
+
+      <section>
+        <div className="mb-1 flex items-center gap-2">
+          <Layers className="h-4 w-4 text-[#a5f3fc]" />
+          <h2 className="text-sm font-semibold text-white">Dynasty &amp; keeper leagues</h2>
+          {savingDynasty && <Loader2 className="h-3.5 w-3.5 animate-spin text-[#919191]" />}
+        </div>
+        <p className="mb-3 text-xs text-[#919191]">
+          When disabled, dynasty and keeper leagues are hidden from the sync picker and dynasty-specific
+          rankings and values are not applied — the app shows redraft leagues and redraft rankings only.
+          Applies to every deployed user.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { value: false, label: "Disabled", hint: "Redraft leagues and rankings only (default)" },
+            { value: true, label: "Enabled", hint: "Show dynasty & keeper leagues and apply dynasty rankings" },
+          ].map((o) => (
+            <button
+              key={String(o.value)}
+              onClick={() => saveDynasty(o.value)}
+              disabled={savingDynasty}
+              title={o.hint}
+              className={cn(
+                "rounded-md border px-3 py-2 text-left text-sm disabled:opacity-50",
+                dynasty === o.value
+                  ? "border-[#a5f3fc] bg-[#a5f3fc]/10 text-white"
+                  : "border-[#1F1F1F] text-[#919191] hover:text-white",
+              )}
+            >
+              <div className="font-medium">{o.label}</div>
+              <div className="text-[11px] text-[#6b6b6b]">{o.hint}</div>
+            </button>
+          ))}
+        </div>
+        {dynastyMsg && <p className="mt-2 text-xs text-[#919191]">{dynastyMsg}</p>}
       </section>
 
       <CronRunners />

@@ -31,7 +31,8 @@ const ODDS_TTL_MS = 10 * 60 * 1000
 async function getSchedule(ctx: AssistantContext, to: number): Promise<Record<number, number[][]>> {
   return getJSON<Record<number, number[][]>>(
     ctx.origin,
-    `/api/sleeper/schedule/${encodeURIComponent(ctx.leagueId)}?to=${to}`,
+    `/api/fantasy/schedule/${encodeURIComponent(ctx.leagueId)}?to=${to}`,
+    ctx.cookie,
   ).catch(() => ({}))
 }
 
@@ -192,8 +193,11 @@ export async function getSeasonOdds(ctx: AssistantContext): Promise<Map<number, 
   return new Map(list.map((o) => [o.rosterId, o]))
 }
 
-async function getJSON<T>(origin: string, path: string): Promise<T> {
-  const res = await fetch(`${origin}${path}`, { cache: "no-store" })
+async function getJSON<T>(origin: string, path: string, cookie?: string): Promise<T> {
+  const res = await fetch(`${origin}${path}`, {
+    cache: "no-store",
+    headers: cookie ? { cookie } : undefined,
+  })
   if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
   return (await res.json()) as T
 }

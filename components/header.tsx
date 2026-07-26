@@ -31,18 +31,18 @@ export function Header() {
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="h-10 w-10 rounded-full bg-black border border-white flex items-center justify-center overflow-hidden outline-none transition-colors hover:border-[#a5f3fc] focus-visible:border-[#a5f3fc]"
+              className="h-8 w-8 md:h-10 md:w-10 rounded-full bg-black border border-white flex items-center justify-center overflow-hidden outline-none transition-colors hover:border-[#a5f3fc] focus-visible:border-[#a5f3fc]"
               aria-label={synced ? "Open synced profile menu" : "Profile"}
             >
               {pfp ? (
                 <Avatar key={pfp} className="h-full w-full">
                   <AvatarImage src={pfp} alt={user?.display_name ?? ""} />
                   <AvatarFallback className="bg-black">
-                    <User className="h-6 w-6 text-white" />
+                    <User className="h-5 w-5 md:h-6 md:w-6 text-white" />
                   </AvatarFallback>
                 </Avatar>
               ) : (
-                <User className="h-6 w-6 text-white" />
+                <User className="h-5 w-5 md:h-6 md:w-6 text-white" />
               )}
             </button>
           </DropdownMenuTrigger>

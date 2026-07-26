@@ -244,42 +244,57 @@ export function slotLabel(code: string): string {
 
 // ---------- client fetchers (browser → /api/sleeper/*) ----------
 
+import { sharedFetchJson } from "@/lib/shared-fetch"
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Sleeper request failed (${res.status}) for ${url}`)
   return res.json() as Promise<T>
 }
 
+// GETs the panels re-request across tab switches — dedupe them and cache for a short TTL. Only
+// use for genuinely idempotent NFL-wide/league-scoped reads; anything that must reflect fresh
+// server state (writes, auth) still goes through getJSON.
+const getShared = <T,>(url: string): Promise<T> => sharedFetchJson<T>(url)
+
+// League-scoped calls take a *qualified* league id (see lib/providers/types.ts) and go to
+// /api/fantasy/*, where the provider layer resolves them to Sleeper-shaped data. NFL-wide calls
+// (state, players, projections, actuals, trending) are platform-independent by nature and keep
+// hitting Sleeper directly — they are the shared data every provider's leagues are scored against.
+const lid = (leagueId: string) => encodeURIComponent(leagueId)
+
 export const sleeper = {
-  state: () => getJSON<NflState>("/api/sleeper/state"),
+  state: () => getShared<NflState>("/api/sleeper/state"),
   user: (username: string) => getJSON<SleeperUser>(`/api/sleeper/user/${encodeURIComponent(username)}`),
-  leagues: (userId: string, season: string) =>
-    getJSON<SleeperLeague[]>(`/api/sleeper/leagues?userId=${userId}&season=${season}`),
-  league: (leagueId: string) => getJSON<LeagueBundle>(`/api/sleeper/league/${leagueId}`),
+  leagues: (userId: string, season: string, provider = "sleeper") =>
+    getJSON<SleeperLeague[]>(
+      `/api/fantasy/leagues?provider=${provider}&userId=${encodeURIComponent(userId)}&season=${season}`,
+    ),
+  league: (leagueId: string) => getShared<LeagueBundle>(`/api/fantasy/league/${lid(leagueId)}`),
   matchups: (leagueId: string, week: number) =>
-    getJSON<Matchup[]>(`/api/sleeper/matchups/${leagueId}/${week}`),
+    getShared<Matchup[]>(`/api/fantasy/matchups/${lid(leagueId)}/${week}`),
   transactions: (leagueId: string, week: number) =>
-    getJSON<Transaction[]>(`/api/sleeper/transactions/${leagueId}/${week}`),
-  players: () => getJSON<PlayersMap>("/api/sleeper/players"),
+    getShared<Transaction[]>(`/api/fantasy/transactions/${lid(leagueId)}/${week}`),
+  players: () => getShared<PlayersMap>("/api/sleeper/players"),
   projections: (season: string, week: number) =>
-    getJSON<ProjMap>(`/api/sleeper/projections?season=${season}&week=${week}`),
+    getShared<ProjMap>(`/api/sleeper/projections?season=${season}&week=${week}`),
   actuals: (season: string, scoring: Scoring = "ppr", ids: string[] = []) => {
     const params = new URLSearchParams({ season, scoring })
     if (ids.length) params.set("ids", ids.join(","))
     return getJSON<ActualFptsWeekMap>(`/api/sleeper/actuals?${params.toString()}`)
   },
   trending: (kind: "add" | "drop" = "add", lookbackHours = 24, limit = 50) =>
-    getJSON<TrendingPlayer[]>(
+    getShared<TrendingPlayer[]>(
       `/api/sleeper/trending?kind=${kind}&lookback_hours=${lookbackHours}&limit=${limit}`,
     ),
   weeklyScores: (leagueId: string, upto: number) =>
-    getJSON<Record<string, Array<{ week: number; points: number }>>>(
-      `/api/sleeper/weekly-scores/${leagueId}?upto=${upto}`,
+    getShared<Record<string, Array<{ week: number; points: number }>>>(
+      `/api/fantasy/weekly-scores/${lid(leagueId)}?upto=${upto}`,
     ),
   schedule: (leagueId: string, to: number) =>
-    getJSON<Record<string, number[][]>>(`/api/sleeper/schedule/${leagueId}?to=${to}`),
+    getShared<Record<string, number[][]>>(`/api/fantasy/schedule/${lid(leagueId)}?to=${to}`),
   season: (leagueId: string, rosterId: number, upto: number, season: string, scoring: Scoring) =>
-    getJSON<{ week: number; projected: number | null; actual: number | null }[]>(
-      `/api/sleeper/season/${leagueId}/${rosterId}?upto=${upto}&season=${season}&scoring=${scoring}`,
+    getShared<{ week: number; projected: number | null; actual: number | null }[]>(
+      `/api/fantasy/season/${lid(leagueId)}/${rosterId}?upto=${upto}&season=${season}&scoring=${scoring}`,
     ),
 }

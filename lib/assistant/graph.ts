@@ -29,6 +29,9 @@ const AssistantAnnotation = Annotation.Root({
 
 export interface RunAssistantArgs {
   origin: string
+  // Forwarded from the caller so internal /api/fantasy/* reads inherit their provider
+  // credentials — without it a private ESPN or Yahoo league would 401 on the server side.
+  cookie?: string
   message: string
   leagueId: string
   rosterId?: number | null
@@ -42,6 +45,7 @@ const graph = new StateGraph(AssistantAnnotation)
   .addNode("load_context", async (state) => {
     const context = await loadAssistantContext({
       origin: state.context?.origin ?? "",
+      cookie: state.context?.cookie,
       leagueId: state.leagueId,
       rosterId: state.rosterId,
     })
@@ -96,6 +100,7 @@ const graph = new StateGraph(AssistantAnnotation)
 
 export async function runAssistant({
   origin,
+  cookie,
   message,
   leagueId,
   rosterId = null,
@@ -107,7 +112,7 @@ export async function runAssistant({
       leagueId,
       rosterId,
       intent: "unknown",
-      context: { origin } as AssistantState["context"],
+      context: { origin, cookie } as AssistantState["context"],
       matchedPlayers: [],
       needsUserInput: false,
     },

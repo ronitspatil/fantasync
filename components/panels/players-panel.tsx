@@ -1,9 +1,8 @@
 "use client"
 
 import { Fragment, useEffect, useMemo, useState } from "react"
-import { ArrowUpDown, ChevronDown, Info } from "lucide-react"
+import { ArrowUpDown, ChevronDown, Info, Loader2 } from "lucide-react"
 import { useSync } from "@/lib/sync-context"
-import { PanelGate } from "@/components/panels/panel-gate"
 import { PositionChip } from "@/components/player-cell"
 import {
   sleeper,
@@ -53,12 +52,21 @@ const SCORING_OPTS: { key: Scoring; label: string }[] = [
   { key: "std", label: "Std" },
 ]
 
+// Rankings are league-agnostic (the served board is keyed only by scoring × QB-count), so this tab
+// works without a synced league. We don't gate on sync — only wait for the shared player universe.
 export function PlayersPanel() {
-  return (
-    <PanelGate>
-      <PlayersContent />
-    </PanelGate>
-  )
+  const { players } = useSync()
+  if (!players) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <Loader2 className="h-10 w-10 text-[#a5f3fc] animate-spin" />
+          <p className="text-[#919191]">Loading players…</p>
+        </div>
+      </div>
+    )
+  }
+  return <PlayersContent />
 }
 
 function PlayersContent() {
@@ -72,7 +80,9 @@ function PlayersContent() {
   const seasonProjectionGames = SEASON_PROJECTION_GAMES
   const [mode, setMode] = useState<Mode>("season")
   const [availability, setAvailability] = useState<AvailabilityFilter>("all")
-  const [scoring, setScoring] = useState<Scoring>(detectScoring(league))
+  // Default to the league's scoring when synced; PPR (the most common default, and the format the
+  // served board is materialized for) when there's no league to detect from.
+  const [scoring, setScoring] = useState<Scoring>(league ? detectScoring(league) : "ppr")
   const [pos, setPos] = useState("ALL")
   const [proj, setProj] = useState<ProjMap>({})
   const [actuals, setActuals] = useState<ActualFptsWeekMap>({})
@@ -113,6 +123,10 @@ function PlayersContent() {
   const activeAvailable = outlookSource.available
   const activeSeasonPointsOf = outlookSource.seasonPointsOf
   const activeHasValue = outlookSource.hasValue
+  // True while season mode is still fetching its ranking source. Used to suppress the
+  // search_rank fallback below during the brief window before the served board resolves —
+  // otherwise the panel flashes an untiered Sleeper-order list before the tiered board arrives.
+  const seasonRankingsLoading = seasonModeOn && !activeAvailable && (served.loading || outlook.loading)
 
   // Scarcity-adjusted season value (VORP) for a player, or null if no projection. VORP is
   // measured relative to replacement level, so below-replacement players come out negative.
@@ -176,16 +190,12 @@ function PlayersContent() {
     }
   }, [engine, proj, scoring])
 
-  // Rosters aren't set until the draft, so in the preseason every player is a free agent — no
-  // stale prior-season roster drives the Rostered / Your-team tags or availability filter.
-  const rosteredIds = useMemo(
-    () => (seasonIsLive ? rosteredPlayerIds(bundle) : new Set<string>()),
-    [bundle, seasonIsLive],
-  )
-  const myPlayerIds = useMemo(
-    () => (seasonIsLive ? buildMyPlayerIds(myRoster) : new Set<string>()),
-    [myRoster, seasonIsLive],
-  )
+  // Read straight from the synced bundle year-round. Before the draft these are usually empty
+  // (a pre-draft league has no rosters), and that's the truthful answer — "Rostered" shows
+  // nothing, "Available" shows everyone. Keepers and early trades do populate them, and blanking
+  // those out would hide real roster state from the filter.
+  const rosteredIds = useMemo(() => rosteredPlayerIds(bundle), [bundle])
+  const myPlayerIds = useMemo(() => buildMyPlayerIds(myRoster), [myRoster])
 
   const rows = useMemo(() => {
     if (!players) return []
@@ -212,6 +222,10 @@ function PlayersContent() {
         return seasonVorp(p.id, p.position) ?? -Infinity
       }
       list.sort((a, b) => metricOf(b) - metricOf(a))
+    } else if (seasonRankingsLoading) {
+      // First-paint window: the ranking source is still fetching. Render nothing rather than
+      // flashing an untiered search_rank list that only exists for the fail case below.
+      list = []
     } else {
       // Fallback when the value model isn't ready: Sleeper's overall search_rank.
       list = list.filter((p) => p.search_rank != null && p.search_rank < 9999)
@@ -232,7 +246,7 @@ function PlayersContent() {
     if (!ptsDesc) list.reverse()
     return list.slice(0, ROW_CAP)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [players, pos, availability, rosteredIds, myPlayerIds, mode, proj, scoring, ptsDesc, weeklyProj, activeAvailable, activeModel, seasonVorp, seasonSortKey, activeSeasonPointsOf, seasonProjectionGames])
+  }, [players, pos, availability, rosteredIds, myPlayerIds, mode, proj, scoring, ptsDesc, weeklyProj, activeAvailable, activeModel, seasonVorp, seasonSortKey, activeSeasonPointsOf, seasonProjectionGames, seasonRankingsLoading])
 
   useEffect(() => {
     // Actual weekly points only exist once real games have been played. Fetched for the WHOLE
@@ -380,48 +394,77 @@ function PlayersContent() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 mt-4">
-          <Toggle
-            options={[
-              { key: "season", label: "Season" },
-              {
-                key: "weekly",
-                label: "Weekly",
-                disabled: !seasonIsLive,
-                title: !seasonIsLive ? `Weekly projections unlock once the ${TARGET_SEASON} season starts` : undefined,
-              },
-            ]}
-            value={mode}
-            onChange={setMode}
-          />
-          <div className="relative">
-            <select
-              value={availability}
-              onChange={(e) => setAvailability(e.target.value as AvailabilityFilter)}
-              className="h-8 appearance-none rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] pl-3 pr-8 text-xs font-medium text-white outline-none transition-colors hover:border-[#3A3A3A] focus:border-[#a5f3fc]/70"
-              aria-label="Player availability"
-            >
-              {AVAILABILITY_FILTERS.map((filter) => (
-                <option key={filter.key} value={filter.key}>
-                  {filter.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#919191]" />
+        {/* Mobile/tablet: two stacked rows. Desktop (lg+): everything collapses onto one line,
+            with the position chips pushed to the right edge. */}
+        <div className="mt-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+          {/* Row 1: mode + scoring + availability, kept on a single line (scoring collapses to a
+              dropdown on mobile, availability flexes to fill the remaining width). */}
+          <div className="flex items-center gap-2">
+            <Toggle
+              options={[
+                { key: "season", label: "Season" },
+                {
+                  key: "weekly",
+                  label: "Weekly",
+                  disabled: !seasonIsLive,
+                  title: !seasonIsLive ? `Weekly projections unlock once the ${TARGET_SEASON} season starts` : undefined,
+                },
+              ]}
+              value={mode}
+              onChange={setMode}
+            />
+            {/* Scoring: compact dropdown on mobile, segmented toggle from sm up. */}
+            <div className="relative sm:hidden">
+              <select
+                value={scoring}
+                onChange={(e) => setScoring(e.target.value as Scoring)}
+                className="h-8 appearance-none rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] pl-3 pr-7 text-xs font-medium text-white outline-none focus:border-[#a5f3fc]/70"
+                aria-label="Scoring format"
+              >
+                {SCORING_OPTS.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#919191]" />
+            </div>
+            <div className="hidden sm:block">
+              <Toggle options={SCORING_OPTS} value={scoring} onChange={setScoring} />
+            </div>
+            {/* Availability: fills the leftover row width on mobile, natural width from sm up. */}
+            <div className="relative min-w-0 flex-1 sm:flex-none">
+              <select
+                value={availability}
+                onChange={(e) => setAvailability(e.target.value as AvailabilityFilter)}
+                className="h-8 w-full appearance-none rounded-lg border border-[#2A2A2A] bg-[#1A1A1A] pl-3 pr-7 text-xs font-medium text-white outline-none transition-colors hover:border-[#3A3A3A] focus:border-[#a5f3fc]/70"
+                aria-label="Player availability"
+              >
+                {(league ? AVAILABILITY_FILTERS : AVAILABILITY_FILTERS.filter((f) => f.key === "all")).map((filter) => (
+                  <option key={filter.key} value={filter.key}>
+                    {filter.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#919191]" />
+            </div>
           </div>
-          <Toggle options={SCORING_OPTS} value={scoring} onChange={setScoring} />
-          {POS_FILTERS.map((p) => (
-            <button
-              key={p}
-              onClick={() => setPos(p)}
-              className={cn(
-                "px-3 py-1 rounded-full text-xs font-medium transition-colors",
-                pos === p ? "bg-[#a5f3fc] text-black" : "bg-[#1A1A1A] text-[#919191] hover:text-white",
-              )}
-            >
-              {p}
-            </button>
-          ))}
+          {/* Row 2: position filters — a scrollable line on mobile, roomy from sm up, and pulled
+              to the right end of the shared row on desktop. */}
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap sm:gap-2 lg:ml-auto lg:flex-nowrap">
+            {POS_FILTERS.map((p) => (
+              <button
+                key={p}
+                onClick={() => setPos(p)}
+                className={cn(
+                  "shrink-0 px-2.5 py-1 rounded-full text-xs font-medium transition-colors sm:px-3",
+                  pos === p ? "bg-[#a5f3fc] text-black" : "bg-[#1A1A1A] text-[#919191] hover:text-white",
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
         </div>
       </Card>
 

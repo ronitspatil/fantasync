@@ -13,6 +13,7 @@ import {
   type PlayersMap,
   type SleeperRoster,
 } from "@/lib/sleeper"
+import { formatLeagueId, parseLeagueId, type Provider } from "@/lib/providers/types"
 
 export type Tab = "league" | "roster" | "start-sit" | "trade" | "players"
 export type SyncStatus = "unsynced" | "loading" | "synced" | "error"
@@ -21,11 +22,16 @@ const STORAGE_KEY = "fantasync.sync"
 const FIRST_SUPPORTED_LEAGUE_SEASON = 2018
 
 interface StoredSync {
+  // Absent on syncs written before multi-platform support — those are all Sleeper.
+  provider?: Provider
   userId: string
   username: string
   displayName: string
   avatar: string | null
   leagueId: string
+  // Which team in the league is the user's. Sleeper infers this from the owner id; ESPN and
+  // Yahoo have no username to match on, so the user picks their team and we remember it.
+  rosterId?: number | null
 }
 
 interface SyncContextValue {
@@ -36,6 +42,7 @@ interface SyncContextValue {
   seasonIsLive: boolean
   // Whether dynasty leagues/rankings are enabled app-wide (admin-controlled, default off).
   dynastyEnabled: boolean
+  provider: Provider
   user: SleeperUser | null
   leagues: SleeperLeague[]
   bundle: LeagueBundle | null
@@ -44,8 +51,13 @@ interface SyncContextValue {
   myRoster: SleeperRoster | null
   activeTab: Tab
   setActiveTab: (t: Tab) => void
+  // Sleeper only: resolve a username to its leagues.
   lookupUser: (username: string) => Promise<SleeperLeague[]>
-  selectLeague: (leagueId: string) => Promise<void>
+  // ESPN/Yahoo: list the connected account's leagues (identity comes from the stored credentials).
+  discoverLeagues: (provider: Provider) => Promise<SleeperLeague[]>
+  // `leagueId` is a qualified id (see lib/providers/types.ts). `rosterId` names the user's team
+  // and is required for ESPN/Yahoo, which have no owner id to match a username against.
+  selectLeague: (leagueId: string, rosterId?: number | null) => Promise<LeagueBundle>
   disconnect: () => void
 }
 
@@ -62,9 +74,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
   const [state, setState] = useState<NflState | null>(null)
   const [user, setUser] = useState<SleeperUser | null>(null)
+  const [provider, setProvider] = useState<Provider>("sleeper")
   const [leagues, setLeagues] = useState<SleeperLeague[]>([])
   const [bundle, setBundle] = useState<LeagueBundle | null>(null)
   const [players, setPlayers] = useState<PlayersMap | null>(null)
+  const [rosterId, setRosterId] = useState<number | null>(null)
   // Admin season-live override, fetched from the public /api/config. "auto" (default) defers to the
   // automatic isSeasonLive(league) detection; "live"/"preseason" force the mode for every user.
   const [liveOverride, setLiveOverride] = useState<"auto" | "live" | "preseason">("auto")
@@ -78,15 +92,19 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState<Tab>("players")
 
   const league = bundle?.league ?? null
-  // Use the selected Sleeper league's season for league-specific panels. Without a synced
-  // league, fall back to the forward-looking target season.
+  // Use the selected league's season for league-specific panels. Without a synced league, fall
+  // back to the forward-looking target season.
   const season = league?.season ?? TARGET_SEASON
   // Live once the synced TARGET_SEASON league is in-season (post-draft) — see isSeasonLive. An
   // admin override (from /api/config) can force either mode for all users; "auto" keeps detection.
   const seasonIsLive =
     liveOverride === "live" ? true : liveOverride === "preseason" ? false : isSeasonLive(league)
+  // Sleeper identifies the user's team by owner id. ESPN and Yahoo don't expose a username we can
+  // match, so the picked team id is authoritative there.
   const myRoster =
-    (user && bundle?.rosters.find((r) => r.owner_id === user.user_id)) || null
+    (rosterId != null && bundle?.rosters.find((r) => r.roster_id === rosterId)) ||
+    (user && bundle?.rosters.find((r) => r.owner_id === user.user_id)) ||
+    null
 
   // Fetch the admin season-live override once (public endpoint). Non-fatal — defaults to "auto".
   useEffect(() => {
@@ -111,37 +129,51 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  // Load NFL state once, and rehydrate a previously synced league.
+  // Load NFL state + the player universe once, and rehydrate a previously synced league. The
+  // players map is fetched unconditionally (not just when synced) so the league-agnostic tabs —
+  // Players rankings, Start/Sit, Trade analyzer — are usable before/without syncing a league.
   useEffect(() => {
     let cancelled = false
+
     ;(async () => {
-      let st: NflState | null = null
       try {
-        st = await sleeper.state()
+        const st = await sleeper.state()
         if (!cancelled) setState(st)
       } catch {
         /* non-fatal */
       }
+    })()
 
+    ;(async () => {
+      try {
+        const pl = await sleeper.players()
+        // Don't clobber a league-load that may have already populated players.
+        if (!cancelled) setPlayers((cur) => cur ?? pl)
+      } catch {
+        /* non-fatal — league-agnostic tabs will show a loading state */
+      }
+    })()
+
+    ;(async () => {
       const stored = readStored()
       if (!stored) return
       if (!cancelled) {
         setStatus("loading")
-        setUser({
-          user_id: stored.userId,
-          username: stored.username,
-          display_name: stored.displayName,
-          avatar: stored.avatar,
-        })
+        setProvider(stored.provider ?? parseLeagueId(stored.leagueId).provider)
+        setRosterId(stored.rosterId ?? null)
+        if (stored.userId) {
+          setUser({
+            user_id: stored.userId,
+            username: stored.username,
+            display_name: stored.displayName,
+            avatar: stored.avatar,
+          })
+        }
       }
       try {
-        const [b, pl] = await Promise.all([
-          sleeper.league(stored.leagueId),
-          sleeper.players(),
-        ])
+        const b = await sleeper.league(stored.leagueId)
         if (cancelled) return
         setBundle(b)
-        setPlayers(pl)
         setStatus("synced")
       } catch (e) {
         if (cancelled) return
@@ -149,6 +181,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         setError(e instanceof Error ? e.message : "Failed to restore league")
       }
     })()
+
     return () => {
       cancelled = true
     }
@@ -157,6 +190,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const lookupUser = useCallback(
     async (username: string) => {
       setError(null)
+      setProvider("sleeper")
       const st = state ?? (await sleeper.state().catch(() => null))
       if (st && !state) setState(st)
       const u = await sleeper.user(username.trim())
@@ -203,11 +237,26 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     [state, dynastyEnabled],
   )
 
+  // ESPN and Yahoo have no username step: the connected credentials identify the account, so the
+  // picker asks the server which leagues that account can see.
+  const discoverLeagues = useCallback(
+    async (p: Provider) => {
+      setError(null)
+      setProvider(p)
+      setUser(null)
+      const lg = await sleeper.leagues("", SLEEPER_LEAGUE_SEASON, p)
+      const filtered = dynastyEnabled ? lg : lg.filter((l) => (l.settings?.type ?? 0) === 0)
+      setLeagues(filtered)
+      return filtered
+    },
+    [dynastyEnabled],
+  )
+
   const selectLeague = useCallback(
-    async (leagueId: string) => {
-      if (!user) throw new Error("Look up a user first")
+    async (leagueId: string, pickedRosterId: number | null = null) => {
       setStatus("loading")
       setError(null)
+      const ref = parseLeagueId(leagueId)
       try {
         const [b, pl] = await Promise.all([
           sleeper.league(leagueId),
@@ -215,14 +264,24 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         ])
         setBundle(b)
         setPlayers(pl)
-        setStatus("synced")
-        writeStored({
-          userId: user.user_id,
-          username: user.username,
-          displayName: user.display_name,
-          avatar: user.avatar,
-          leagueId,
-        })
+        setProvider(ref.provider)
+        setRosterId(pickedRosterId)
+        // A Sleeper league is fully synced the moment it loads (the username already identifies
+        // the team). ESPN/Yahoo need a team pick, so they stay "loading" until one arrives.
+        const identified = ref.provider === "sleeper" || pickedRosterId != null
+        setStatus(identified ? "synced" : "loading")
+        if (identified) {
+          writeStored({
+            provider: ref.provider,
+            userId: user?.user_id ?? "",
+            username: user?.username ?? "",
+            displayName: user?.display_name ?? b.league.name,
+            avatar: user?.avatar ?? null,
+            leagueId,
+            rosterId: pickedRosterId,
+          })
+        }
+        return b
       } catch (e) {
         setStatus("error")
         setError(e instanceof Error ? e.message : "Failed to load league")
@@ -235,10 +294,14 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     setStatus("unsynced")
     setUser(null)
+    setProvider("sleeper")
     setLeagues([])
     setBundle(null)
+    setRosterId(null)
     setError(null)
-    setActiveTab("league")
+    // Land on Players, not League: League needs a synced league and would show a gate, which is a
+    // dead end right after disconnecting. Players works with no league at all.
+    setActiveTab("players")
     if (typeof window !== "undefined") localStorage.removeItem(STORAGE_KEY)
   }, [])
 
@@ -251,6 +314,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         season,
         seasonIsLive,
         dynastyEnabled,
+        provider,
         user,
         leagues,
         bundle,
@@ -260,6 +324,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         activeTab,
         setActiveTab,
         lookupUser,
+        discoverLeagues,
         selectLeague,
         disconnect,
       }}
@@ -268,6 +333,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     </SyncContext.Provider>
   )
 }
+
+export { formatLeagueId }
 
 function readStored(): StoredSync | null {
   if (typeof window === "undefined") return null

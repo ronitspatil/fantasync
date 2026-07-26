@@ -11,6 +11,9 @@ export interface AssistantInput {
 
 export interface AssistantContext {
   origin: string
+  // The caller's cookie header, forwarded onto internal /api/fantasy/* calls so a private ESPN or
+  // a Yahoo league is readable from the server side too. Absent for public/Sleeper leagues.
+  cookie?: string
   leagueId: string
   rosterId: number | null
   bundle: LeagueBundle

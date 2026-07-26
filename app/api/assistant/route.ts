@@ -23,6 +23,7 @@ export async function POST(req: Request) {
     const origin = new URL(req.url).origin
     const recommendation = await runAssistant({
       origin,
+      cookie: req.headers.get("cookie") ?? undefined,
       message,
       leagueId,
       rosterId: body?.rosterId ?? null,

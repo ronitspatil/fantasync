@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { ValueModel } from "@/lib/engine/value"
 import type { RankingsPayload, ServedRanking } from "@/app/api/rankings/route"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 // Consume the server-materialized rankings board (Phase 3c). This is the read side of the
 // "single source of truth": instead of every client recomputing the value model in-browser,
@@ -55,8 +56,9 @@ export function useServedRankings(
     }
     let cancelled = false
     setLoading(true)
-    fetch(`/api/rankings?season=${season}&week=${week}&scoring_key=${encodeURIComponent(scoringKey)}`)
-      .then((r) => r.json() as Promise<RankingsPayload>)
+    sharedFetchJson<RankingsPayload>(
+      `/api/rankings?season=${season}&week=${week}&scoring_key=${encodeURIComponent(scoringKey)}`,
+    )
       .then((d) => !cancelled && setRows(d.rankings ?? []))
       .catch(() => !cancelled && setRows([]))
       .finally(() => !cancelled && setLoading(false))

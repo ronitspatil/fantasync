@@ -2,17 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
-import {
-  Radar,
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  ResponsiveContainer,
-} from "recharts"
 import { useSync } from "@/lib/sync-context"
 import { PanelGate } from "@/components/panels/panel-gate"
 import { PositionChip } from "@/components/player-cell"
+import { FreeRoster } from "@/components/panels/free-roster"
+import {
+  Card,
+  GradeList,
+  PositionRadar,
+  RosterGroup,
+  RosterPlayerCell,
+} from "@/components/panels/roster-parts"
 import {
   sleeper,
   detectScoring,
@@ -30,20 +30,19 @@ import { buildLineup, benchPlayers, teamName, ownerOf, evaluateRosterByPosition 
 import { isFantasyRelevant, rosteredPlayerIds } from "@/lib/availability"
 import { useEngineValues } from "@/lib/use-engine-values"
 import { useEngineProjections } from "@/lib/use-engine-projections"
-import { teamValue } from "@/lib/engine/value"
+import {
+  CORE_POSITIONS,
+  GRADE_AXES,
+  gradeAgainstPeers,
+  gradeLabel,
+  positionGrades,
+  type GradeRow,
+} from "@/lib/engine/team-grade"
 import { rankPickups, type WaiverPlayer } from "@/lib/engine/waivers"
 import { seasonAvailabilityMult } from "@/lib/engine/availability"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import { runWorkflow } from "@/lib/workflows-client"
-import { cn } from "@/lib/utils"
 
-function Card({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("bg-[#0D0D0D] rounded-2xl p-4 sm:p-6", className)}>{children}</div>
-}
-
-const CORE_POSITIONS = ["QB", "RB", "WR", "TE"] as const
-const GRADE_AXES = [...CORE_POSITIONS, "K/DEF", "Depth"] as const
-type GradeRow = { position: string; grade: number }
 const PICKUP_LIMIT = 4
 
 interface SuggestedPickup {
@@ -65,7 +64,10 @@ interface BackendPickup {
 }
 
 export function RosterPanel() {
-  const { seasonIsLive } = useSync()
+  const { status, seasonIsLive } = useSync()
+  // With no league there are no opponents to grade against, so the no-league view asks for the
+  // league's shape and scoring and manufactures the rest of the league from the board.
+  if (status === "unsynced") return <FreeRoster />
   return (
     <PanelGate>
       {seasonIsLive ? <RosterContent /> : <PreseasonRoster />}
@@ -199,49 +201,39 @@ function RosterContent() {
   // Weekly engine projections carry the opportunity-trend signal (form_slope) for waivers.
   const { scored: weeklyEngine } = useEngineProjections(season, week)
 
-  // Position grades = percentile of this team's VORP sum vs the league at that position
-  // group (scarcity-aware; a superflex QB room or a deep RB corps scores high because the
-  // value model already accounts for format). Falls back to raw-projected-points grading
-  // (relative to the best team) if the engine value model isn't available yet.
-  const radarData = useMemo(() => {
+  // Position grades: this team's scarcity-aware VORP at each axis, graded against the league on
+  // the smoothed curve in lib/engine/team-grade (rank + absolute strength, never a flat 0 for
+  // whoever finishes last). Falls back to raw projected points — through the same curve — if the
+  // engine value model isn't available yet.
+  const radarData = useMemo<GradeRow[]>(() => {
     if (!league || !bundle || !players || !myRoster) return []
     const rp = league.roster_positions
 
     if (valuesOn && model) {
-      const valued = (roster: SleeperRoster): ValuedPlayer[] =>
-        (roster.players ?? [])
-          .map((id) => ({ id, position: players[id]?.position ?? "", value: valueOf(id) }))
-          .filter((p) => p.position) as ValuedPlayer[]
-
-      const teamVals = bundle.rosters.map((r) => ({ id: r.roster_id, tv: teamValue(model, valued(r), rp) }))
-      const mineTv = teamVals.find((t) => t.id === myRoster.roster_id)?.tv
-      if (mineTv) {
-        const pct = (get: (tv: (typeof teamVals)[number]["tv"]) => number) => {
-          const mv = get(mineTv)
-          const below = teamVals.filter((t) => get(t.tv) < mv).length
-          return Math.round((below / Math.max(1, teamVals.length - 1)) * 100)
-        }
-        const rows: GradeRow[] = CORE_POSITIONS.map((pos) => ({
-          position: pos,
-          grade: pct((tv) => tv.byPosition[pos] ?? 0),
-        }))
-        rows.push({ position: "K/DEF", grade: pct((tv) => (tv.byPosition["K"] ?? 0) + (tv.byPosition["DEF"] ?? 0)) })
-        rows.push({ position: "Depth", grade: pct((tv) => tv.total) })
-        return rows
-      }
+      return positionGrades({
+        model,
+        rosterPositions: rp,
+        teams: bundle.rosters.map((roster) => ({
+          id: roster.roster_id,
+          players: (roster.players ?? [])
+            .map((id) => ({ id, position: players[id]?.position ?? "", value: valueOf(id) }))
+            .filter((p) => p.position) as ValuedPlayer[],
+        })),
+        myId: myRoster.roster_id,
+      })
     }
 
-    // Fallback: raw-projected-points grading relative to the best team.
+    // Fallback: raw projected points, graded on the same curve so the radar behaves identically
+    // whichever source is driving it.
     const sumByPos = (roster: SleeperRoster, pos: string) =>
       (roster.players ?? [])
         .filter((id) => players[id]?.position === pos)
         .reduce((s, id) => s + projValue(proj[id], scoring), 0)
 
-    const gradePosition = (label: string, value: (roster: SleeperRoster) => number) => {
-      const mine = value(myRoster)
-      const leagueMax = Math.max(...bundle.rosters.map(value), 1)
-      return { position: label, grade: Math.round((mine / leagueMax) * 100) }
-    }
+    const gradePosition = (label: string, value: (roster: SleeperRoster) => number): GradeRow => ({
+      position: label,
+      grade: gradeAgainstPeers(value(myRoster), bundle.rosters.map(value)),
+    })
 
     const depthLimit = Math.max(rp.filter((slot) => slot === "BN").length, 4)
     const depthValue = (roster: SleeperRoster) => {
@@ -424,8 +416,11 @@ function RosterContent() {
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card className="xl:col-span-2">
+      <div className="grid grid-cols-1 items-stretch gap-6 xl:grid-cols-3">
+        {/* flex column + a growing group stack: when the right-hand column runs tall (four
+            suggested pickups), the roster spreads to fill its card instead of leaving a black
+            gap under the last bench slot. */}
+        <Card className="flex flex-col xl:col-span-2">
           <div className="mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-white">Roster</h2>
@@ -440,6 +435,7 @@ function RosterContent() {
             />
           </div>
 
+          <div className="flex flex-1 flex-col justify-between gap-4">
           <RosterGroup title="Starters" showScoringHeader>
             {lineup.map((spot) => (
               <RosterPlayerCell
@@ -493,6 +489,7 @@ function RosterContent() {
               ))}
             </RosterGroup>
           )}
+          </div>
         </Card>
 
         <div className="flex h-full flex-col gap-6">
@@ -502,18 +499,11 @@ function RosterContent() {
             </div>
             <p className="text-xs text-[#919191] mb-2">
               {valuesOn
-                ? "Percentile vs league — value over replacement (scarcity-adjusted)"
+                ? "Graded vs your league — value over replacement (scarcity-adjusted)"
                 : "Position strength vs the league"}
             </p>
             <PositionRadar data={radarData} />
-            <div className="grid grid-cols-2 gap-2 mt-4">
-              {radarData.map((d) => (
-                <div key={d.position} className="flex items-center justify-between text-sm">
-                  <span className="text-[#919191]">{d.position}</span>
-                  <span className="font-semibold text-white tabular-nums">{d.grade}</span>
-                </div>
-              ))}
-            </div>
+            <GradeList rows={radarData} />
           </Card>
 
           <Card className="flex flex-1 flex-col">
@@ -761,63 +751,6 @@ function WeekPicker({
   )
 }
 
-function RosterPlayerCell({
-  player,
-  slot,
-  projected,
-  actual,
-  emptyLabel = "Empty",
-}: {
-  player: SlimPlayer | null | undefined
-  slot?: string
-  projected?: number | null
-  actual?: number | null
-  emptyLabel?: string
-}) {
-  if (!player) {
-    return (
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_88px_72px] items-center gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          {slot && <PositionChip pos={slot} />}
-          <span className="truncate text-sm italic text-[#666]">{emptyLabel}</span>
-        </div>
-        <span className="text-right text-sm text-[#666]">-</span>
-        <span className="text-right text-sm text-[#666]">-</span>
-      </div>
-    )
-  }
-
-  const injured = player.injury_status && !["Healthy", "ACT"].includes(player.injury_status)
-
-  return (
-    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_88px_72px] items-center gap-3">
-      <div className="flex min-w-0 items-center gap-3">
-        {slot && <PositionChip pos={slot} />}
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-sm font-medium text-white">{player.name}</span>
-            {injured && (
-              <span className="shrink-0 text-[10px] font-bold text-red-400">
-                {player.injury_status}
-              </span>
-            )}
-          </div>
-          <div className="truncate text-xs text-[#919191]">
-            {player.position ?? "-"}
-            {player.team ? ` · ${player.team}` : " · FA"}
-          </div>
-        </div>
-      </div>
-      <span className="text-right text-sm text-[#919191] tabular-nums">
-        {projected != null && projected > 0 ? projected.toFixed(1) : "-"}
-      </span>
-      <span className="text-right text-sm text-white tabular-nums">
-        {actual != null ? actual.toFixed(1) : "-"}
-      </span>
-    </div>
-  )
-}
-
 function SuggestedPickupRow({ candidate }: { candidate: SuggestedPickup }) {
   const { player } = candidate
 
@@ -859,49 +792,4 @@ function SuggestedPickupRow({ candidate }: { candidate: SuggestedPickup }) {
 
 function formatTrend(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-}
-
-function RosterGroup({
-  title,
-  children,
-  showScoringHeader = false,
-}: {
-  title: string
-  children: React.ReactNode
-  showScoringHeader?: boolean
-}) {
-  return (
-    <div className="mb-5 last:mb-0">
-      <div className="mb-3 grid grid-cols-[minmax(0,1fr)_88px_72px] items-center gap-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-[#919191]">{title}</div>
-        {showScoringHeader && (
-          <>
-            <div className="text-right text-[10px] font-semibold uppercase tracking-wide text-[#666]">Proj</div>
-            <div className="text-right text-[10px] font-semibold uppercase tracking-wide text-[#666]">Actual</div>
-          </>
-        )}
-      </div>
-      <div className="flex flex-col gap-2.5">{children}</div>
-    </div>
-  )
-}
-
-function PositionRadar({ data }: { data: { position: string; grade: number }[] }) {
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
-
-  return (
-    <div className="h-[240px] w-full">
-      {mounted && data.length > 2 && (
-        <ResponsiveContainer width="100%" height="100%">
-          <RadarChart data={data} outerRadius="70%">
-            <PolarGrid stroke="#2A2A2A" />
-            <PolarAngleAxis dataKey="position" tick={{ fill: "#919191", fontSize: 12 }} />
-            <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
-            <Radar dataKey="grade" stroke="#a5f3fc" fill="#a5f3fc" fillOpacity={0.35} />
-          </RadarChart>
-        </ResponsiveContainer>
-      )}
-    </div>
-  )
 }

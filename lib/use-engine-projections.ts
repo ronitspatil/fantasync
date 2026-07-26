@@ -6,6 +6,7 @@ import { detectScoring } from "@/lib/sleeper"
 import { scoringKey } from "@/lib/engine/rankings"
 import { scoreAllProjections, type ScoredProjection } from "@/lib/engine/project-points"
 import type { EngineProjectionRow } from "@/app/api/engine/projections/route"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 interface EnginePayload {
   count: number
@@ -34,10 +35,10 @@ export function useEngineProjections(season: string, week: number) {
     let cancelled = false
     setLoading(true)
     Promise.all([
-      fetch(`/api/engine/projections?season=${season}&week=${week}`).then((r) => r.json() as Promise<EnginePayload>),
-      fetch(`/api/projection-overrides?season=${season}&week=${week}&scoring_key=${encodeURIComponent(canonicalKey)}`)
-        .then((r) => r.json() as Promise<{ overrides?: Record<string, number> }>)
-        .catch(() => ({ overrides: {} })),
+      sharedFetchJson<EnginePayload>(`/api/engine/projections?season=${season}&week=${week}`),
+      sharedFetchJson<{ overrides?: Record<string, number> }>(
+        `/api/projection-overrides?season=${season}&week=${week}&scoring_key=${encodeURIComponent(canonicalKey)}`,
+      ).catch(() => ({ overrides: {} })),
     ])
       .then(([proj, ov]) => {
         if (cancelled) return

@@ -35,6 +35,24 @@ pnpm dev                     # http://localhost:3000
 See [.env.example](.env.example) for the required variables. The same set must be
 configured in the Vercel project for the deploy to run.
 
+## League providers
+
+Fantasync syncs leagues from Sleeper, ESPN, and Yahoo. Each platform has an adapter under
+[`lib/providers`](lib/providers) that normalizes it into Sleeper's shapes, keyed by **Sleeper
+player ids** — so rankings, projections, and trade values depend only on a league's own settings,
+never on which platform it lives on. `lib/providers/platform-neutrality.test.ts` asserts that
+property directly.
+
+| Provider | Credentials | Notes |
+| --- | --- | --- |
+| Sleeper | none | Username lookup; the reference shape everything else normalizes to |
+| ESPN | none for public leagues; the member's own `espn_s2` + `SWID` for private ones | Cookies are stored server-side in an httpOnly cookie and sent only to ESPN |
+| Yahoo | OAuth2 — needs `YAHOO_CLIENT_ID` / `YAHOO_CLIENT_SECRET` | Locked in the sync dialog until those are set |
+
+Cross-platform player ids come from DynastyProcess's `db_playerids` table, with a normalized-name
+fallback against Sleeper's own player file. Measured against ESPN's 1,196 most-rostered players,
+resolution is complete.
+
 ## Branching & deploys
 
 Two long-lived branches:

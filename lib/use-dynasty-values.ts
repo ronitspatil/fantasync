@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import type { DynastyValueOut } from "@/app/api/engine/dynasty-values/route"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 // Fetch DynastyProcess community dynasty values keyed by sleeper_id (the trade-value
 // market anchor). Loaded once per session.
@@ -11,8 +12,7 @@ export function useDynastyValues() {
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/engine/dynasty-values")
-      .then((r) => r.json() as Promise<{ values: Record<string, DynastyValueOut> }>)
+    sharedFetchJson<{ values: Record<string, DynastyValueOut> }>("/api/engine/dynasty-values")
       .then((d) => {
         if (!cancelled) setValues(d.values ?? {})
       })

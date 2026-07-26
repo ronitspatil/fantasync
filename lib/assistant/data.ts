@@ -24,13 +24,15 @@ export async function loadAssistantContext({
   origin,
   leagueId,
   rosterId,
+  cookie,
 }: {
   origin: string
   leagueId: string
   rosterId?: number | null
+  cookie?: string
 }): Promise<AssistantContext> {
   const [bundle, players] = await Promise.all([
-    getJSON<LeagueBundle>(origin, `/api/sleeper/league/${encodeURIComponent(leagueId)}`),
+    getJSON<LeagueBundle>(origin, `/api/fantasy/league/${encodeURIComponent(leagueId)}`, cookie),
     getJSON<PlayersMap>(origin, "/api/sleeper/players"),
   ])
   const myRoster =
@@ -40,6 +42,7 @@ export async function loadAssistantContext({
 
   return {
     origin,
+    cookie,
     leagueId,
     rosterId: myRoster?.roster_id ?? rosterId ?? null,
     bundle,
@@ -152,8 +155,11 @@ export function rosterName(roster: SleeperRoster | null, bundle: LeagueBundle): 
   return user?.metadata?.team_name || user?.display_name || `Roster ${roster.roster_id}`
 }
 
-async function getJSON<T>(origin: string, path: string): Promise<T> {
-  const res = await fetch(`${origin}${path}`, { cache: "no-store" })
+async function getJSON<T>(origin: string, path: string, cookie?: string): Promise<T> {
+  const res = await fetch(`${origin}${path}`, {
+    cache: "no-store",
+    headers: cookie ? { cookie } : undefined,
+  })
   if (!res.ok) throw new Error(`Assistant data request failed (${res.status}) for ${path}`)
   return res.json() as Promise<T>
 }

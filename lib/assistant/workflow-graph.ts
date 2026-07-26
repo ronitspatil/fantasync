@@ -222,7 +222,8 @@ async function buildStartSitDecision(ctx: AssistantContext, selectedIds: string[
   const week = lastRegularSeasonWeek(ctx.bundle.league)
   const matchups = await getJSON<Matchup[]>(
     ctx.origin,
-    `/api/sleeper/matchups/${encodeURIComponent(ctx.leagueId)}/${week}`,
+    `/api/fantasy/matchups/${encodeURIComponent(ctx.leagueId)}/${week}`,
+    ctx.cookie,
   ).catch(() => null)
   if (!matchups) return { winByCandidate: {} }
 
@@ -297,8 +298,11 @@ function isUnavailable(player: SlimPlayer | undefined): boolean {
   return status.includes("out") || status.includes("ir") || status.includes("doubt")
 }
 
-async function getJSON<T>(origin: string, path: string): Promise<T> {
-  const res = await fetch(`${origin}${path}`, { cache: "no-store" })
+async function getJSON<T>(origin: string, path: string, cookie?: string): Promise<T> {
+  const res = await fetch(`${origin}${path}`, {
+    cache: "no-store",
+    headers: cookie ? { cookie } : undefined,
+  })
   if (!res.ok) throw new Error(`Workflow request failed (${res.status}) for ${path}`)
   return res.json() as Promise<T>
 }

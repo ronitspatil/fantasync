@@ -8,6 +8,7 @@ import { buildValueModel, type ValueModel } from "@/lib/engine/value"
 import { contextFromEngineLine, playerContextMult } from "@/lib/engine/context-adjust"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import type { EngineProjectionRow } from "@/app/api/engine/projections/route"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 interface RosPayload {
   count: number
@@ -26,8 +27,7 @@ export function useEngineValues(season: string, week: number) {
     if (!season || !week) return
     let cancelled = false
     setLoading(true)
-    fetch(`/api/engine/ros?season=${season}&week=${week}`)
-      .then((r) => r.json() as Promise<RosPayload>)
+    sharedFetchJson<RosPayload>(`/api/engine/ros?season=${season}&week=${week}`)
       .then((d) => !cancelled && setRaw(d.projections ?? {}))
       .catch(() => !cancelled && setRaw({}))
       .finally(() => !cancelled && setLoading(false))
@@ -45,6 +45,7 @@ export function useEngineValues(season: string, week: number) {
         model: null as ValueModel | null,
         valueOf: () => 0,
         meanSdOf: () => ({ mean: 0, sd: 0 }),
+        hasValue: () => false,
         available: false,
       }
     }
@@ -85,7 +86,11 @@ export function useEngineValues(season: string, week: number) {
       return { mean: v?.value ?? 0, sd: v?.sd ?? 0 }
     }
 
-    return { model, valueOf, meanSdOf, valueById, available: Object.keys(raw).length > 0 }
+    // Existence check independent of value's sign — a below-replacement player has a real
+    // (negative) value and must not be confused with one the engine has no projection for.
+    const hasValue = (id: string): boolean => valueById.has(id)
+
+    return { model, valueOf, meanSdOf, hasValue, valueById, available: Object.keys(raw).length > 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raw, league, bundle, players, scoringType, JSON.stringify(scoring)])
 

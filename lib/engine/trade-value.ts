@@ -37,6 +37,9 @@ export interface TradeEval {
   bValueOut: number
   verdict: "Fair" | "Favors you" | "Favors them" | "Lopsided — you win" | "Lopsided — you lose"
   fairness: number // 0..1, 1 = perfectly balanced win-win
+  // Signed version of the same imbalance, clamped to -1..1: >0 leans your way, <0 theirs.
+  // `fairness` throws away the direction; a tilt meter needs it.
+  lean: number
 }
 
 export interface SuggestedTrade {
@@ -166,7 +169,8 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
     else verdict = "Favors them"
 
     const fairness = Number(Math.max(0, 1 - Math.abs(diff)).toFixed(2))
-    return { aSurplus, bSurplus, aValueIn, aValueOut, bValueIn, bValueOut, verdict, fairness }
+    const lean = Number(Math.max(-1, Math.min(1, diff)).toFixed(3))
+    return { aSurplus, bSurplus, aValueIn, aValueOut, bValueIn, bValueOut, verdict, fairness, lean }
   }
 
   return {

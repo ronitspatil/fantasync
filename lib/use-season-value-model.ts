@@ -10,6 +10,8 @@ export interface SeasonValueModel {
   model: ValueModel | null
   valueOf: (id: string) => number
   meanSdOf: (id: string) => { mean: number; sd: number }
+  // Whether the board has a row for this player at all — independent of the value's sign.
+  hasValue: (id: string) => boolean
   available: boolean
   loading: boolean
   live: boolean
@@ -34,6 +36,7 @@ export function useSeasonValueModel(scoringOverride?: Scoring): SeasonValueModel
       model: engine.model,
       valueOf: engine.valueOf,
       meanSdOf: engine.meanSdOf,
+      hasValue: engine.hasValue,
       available: engine.available,
       loading: engine.loading,
       live: true,
@@ -45,6 +48,7 @@ export function useSeasonValueModel(scoringOverride?: Scoring): SeasonValueModel
     // The projection outlook has no per-player distribution, so confidence bands are neutral
     // (sd 0) in the preseason — they return once live game data feeds the engine model.
     meanSdOf: (id: string) => ({ mean: outlook.valueOf(id), sd: 0 }),
+    hasValue: outlook.hasValue,
     available: outlook.available,
     loading: outlook.loading,
     live: false,

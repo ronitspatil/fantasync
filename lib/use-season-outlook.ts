@@ -8,6 +8,7 @@ import { buildSeasonBoard, REC_FOR, scoreSleeperLine } from "@/lib/engine/rankin
 import { useFantasyProsRanks } from "@/lib/use-fantasypros-ranks"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import type { SeasonProjection } from "@/app/api/sleeper/season-projections/route"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 // scoreSleeperLine is re-exported for backwards compatibility with any consumer that imported
 // it from this module (the canonical implementation now lives in lib/engine/rankings).
@@ -30,8 +31,9 @@ export function useSeasonOutlook(season: string, enabled: boolean, scoringOverri
     if (!enabled || !season) return
     let cancelled = false
     setLoading(true)
-    fetch(`/api/sleeper/season-projections?season=${season}`)
-      .then((r) => r.json() as Promise<{ projections: Record<string, SeasonProjection> }>)
+    sharedFetchJson<{ projections: Record<string, SeasonProjection> }>(
+      `/api/sleeper/season-projections?season=${season}`,
+    )
       .then((d) => !cancelled && setRaw(d.projections ?? {}))
       .catch(() => !cancelled && setRaw({}))
       .finally(() => !cancelled && setLoading(false))

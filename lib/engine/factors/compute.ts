@@ -14,12 +14,43 @@
 //   vol_mean/sd — weekly fantasy-point mean & dispersion, for start/sit floor-ceiling (replaces
 //                 the old flat sd = mean * 0.4 assumption).
 //
-// factor_mult is a BOUNDED product of the opportunity/efficiency/regression tilts. It's kept
-// small on purpose: the Sleeper projection already prices in much of a player's profile, so this
-// is a correction/prior — enough to reorder similar players, not to overturn a real projection
-// edge. Players below the min-sample gate (or with no prior-season data at all — rookies, team
-// changers we can't trust) get a neutral 1.0, so the projection stands on its own.
+// The three tilts are NOT blended into one number here. Each is emitted separately, because each
+// governs a different slice of a projection and they have very different year-to-year shelf lives
+// — volume repeats well, efficiency less so, TD rate hardly at all. lib/engine/factors/components.ts
+// routes each tilt to the points it actually explains. `factor_mult` remains as a single-number
+// fallback for the surfaces that hold no stat line to decompose.
+//
+// Players below the min-sample gate (or with no prior-season data at all — rookies, team changers
+// we can't trust) get neutral tilts, so the projection stands on its own.
 import { supabaseAdmin } from "@/lib/supabase/admin"
+import { blendedMultiplier, type ComponentTilts } from "@/lib/engine/factors/components"
+import {
+  blendAvailable,
+  EFFICIENCY_WEIGHTS,
+  loadAdvSkill,
+  skillIndex,
+  snapShare,
+  SNAP_SHARE_WEIGHT,
+  type AdvSkillRow,
+} from "@/lib/engine/factors/skill"
+import {
+  depthProfile,
+  explosiveIndex,
+  loadPlayFeatures,
+  receivingRole,
+  yardsPerTarget,
+  type PlayFeatureRow,
+  type ReceivingRole,
+} from "@/lib/engine/factors/plays"
+import { fitScale, shrinkWeight, shrinkZ, zOn, type Scale } from "@/lib/engine/factors/shrink"
+import {
+  athleticTilt,
+  isRookie,
+  rookieTilts,
+  ROOKIE_POSITIONS,
+  type Athletic,
+  type DraftCapital,
+} from "@/lib/engine/factors/rookie"
 
 export const FACTOR_POSITIONS = ["QB", "RB", "WR", "TE"] as const
 export type FactorPos = (typeof FACTOR_POSITIONS)[number]
@@ -27,26 +58,44 @@ export type FactorPos = (typeof FACTOR_POSITIONS)[number]
 const MAX_WEEK = 18 // regular season only
 const PAGE = 1000
 
-// Min sample for a player's z-scores to be trusted; below this → neutral factor_mult.
-const MIN_GAMES = 6
-const MIN_OPP: Record<FactorPos, number> = { QB: 100, RB: 40, WR: 25, TE: 20 } // season attempts/touches+targets
+// Two gates, doing two different jobs.
+//
+// RELIABLE defines the population the position's scale is fitted on — established players whose
+// numbers we believe. Fitting the mean and spread on everybody would let fringe noise inflate the
+// spread and quietly compress every real player's z toward zero.
+//
+// ENTRY is just "did this player do anything at all". Everyone above it gets scored against the
+// reliable scale and then shrunk by how much of a sample they actually have (see shrink.ts), so
+// there's no longer a cliff where one more touch flips a player from unknown to fully trusted.
+const RELIABLE_GAMES = 6
+const RELIABLE_OPP: Record<FactorPos, number> = { QB: 100, RB: 40, WR: 25, TE: 20 }
+const ENTRY_GAMES = 2
+const ENTRY_OPP: Record<FactorPos, number> = { QB: 30, RB: 12, WR: 8, TE: 6 }
 
-// Tilt weights (max contribution of each z-component, at |z| >= 2). Deliberately modest so the
-// combined factor can't swamp the projection it corrects. They sum to 0.08, so an all-max player
-// lands right at the ±8% clamp — the clamp is a safety bound, not something most players pin to.
-const OPP_W = 0.038
-const EFF_W = 0.024
-const REG_W = 0.018
-const MULT_LO = 0.92
-const MULT_HI = 1.08
+// Where a row's signal came from. "prior_season" is measured; "rookie" is a draft-capital prior
+// for a player with no NFL sample. Kept explicit so the admin surface never has to guess, and so
+// a rookie prior is never mistaken for a measurement.
+export type FactorSource = "prior_season" | "rookie"
 
 export interface FactorRow {
   season: number
   sleeper_id: string
   position: FactorPos
+  source: FactorSource
+  // The receiving job this player actually held, derived from the depth of his targets. Null for
+  // players who don't catch enough passes for the question to mean anything.
+  role: ReceivingRole | null
+  // Average depth of target — kept alongside the role so the read-time QB-fit term has something
+  // to match a new team's passing profile against.
+  adot: number | null
   opportunity: number | null // z within position (null = below sample gate)
   efficiency: number | null
   regression: number | null // signed: + = positive-regression candidate
+  // The same three signals normalized to [-1, 1], ready to be applied per bucket. These are the
+  // real output of this module; factor_mult is the collapsed convenience form.
+  volume_tilt: number
+  efficiency_tilt: number
+  td_tilt: number
   factor_mult: number
   vol_mean: number
   vol_sd: number
@@ -62,14 +111,10 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0)
 const mean = (xs: number[]) => (xs.length ? sum(xs) / xs.length : 0)
 const stdev = (xs: number[], m: number) =>
   xs.length < 2 ? 0 : Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (xs.length - 1))
-// z-score helper: returns a lookup id → z, using a floored stdev so a near-constant metric
-// doesn't explode into huge z-values.
-const zmap = (vals: Array<{ id: string; v: number }>): Map<string, number> => {
-  const m = mean(vals.map((x) => x.v))
-  const s = stdev(vals.map((x) => x.v), m) || 1
-  return new Map(vals.map((x) => [x.id, (x.v - m) / s]))
-}
 const clampZ = (z: number) => Math.max(-2, Math.min(2, z)) / 2 // → [-1, 1]
+// z-score a value that may be absent, keeping "unmeasured" (null) distinct from "average" (0).
+const zed = (scale: Scale, value: number | null): number | null =>
+  value == null ? null : zOn(scale, value)
 const round3 = (n: number) => Math.round(n * 1000) / 1000
 
 // One player-game's worth of the fields we aggregate. Column aliases match the select below.
@@ -198,57 +243,274 @@ function tdRate(a: Agg): number {
   return a.tds / Math.max(1, a.tgt)
 }
 
-function qualifies(a: Agg): boolean {
-  if (a.games < MIN_GAMES) return false
-  const opp = a.position === "QB" ? a.att : a.position === "RB" ? a.car + a.tgt : a.tgt
-  return opp >= MIN_OPP[a.position]
+// Season opportunity count, in the units each position's sample size is naturally measured in.
+// This is what shrinkage divides against, so it has to be a count, not a rate.
+function opportunityCount(a: Agg): number {
+  if (a.position === "QB") return a.att
+  if (a.position === "RB") return a.car + a.tgt
+  return a.tgt
+}
+
+// Established enough to help define the position's scale.
+function reliable(a: Agg): boolean {
+  return a.games >= RELIABLE_GAMES && opportunityCount(a) >= RELIABLE_OPP[a.position]
+}
+
+// Played enough to be worth scoring at all — everything above this gets a shrunk signal rather
+// than nothing.
+function eligible(a: Agg): boolean {
+  return a.games >= ENTRY_GAMES && opportunityCount(a) >= ENTRY_OPP[a.position]
 }
 
 // Compute projected player factors for `targetSeason` from targetSeason-1 actuals.
 export async function computePlayerFactors(targetSeason: number): Promise<FactorRow[]> {
   const priorSeason = targetSeason - 1
-  const aggs = aggregate(await loadPriorRows(priorSeason))
+  const [rows, advSkill, plays] = await Promise.all([
+    loadPriorRows(priorSeason),
+    // The charted feeds are bonuses, not dependencies — a season PFR or play-by-play hasn't
+    // posted yet leaves the box-score signals standing on their own.
+    loadAdvSkill(priorSeason).catch(() => new Map<string, AdvSkillRow>()),
+    loadPlayFeatures(priorSeason).catch(() => new Map<string, PlayFeatureRow>()),
+  ])
+  const aggs = aggregate(rows)
 
   const out: FactorRow[] = []
   for (const pos of FACTOR_POSITIONS) {
-    const players = [...aggs.entries()].filter(([, a]) => a.position === pos && qualifies(a))
+    const players = [...aggs.entries()].filter(([, a]) => a.position === pos && eligible(a))
     if (players.length === 0) continue
 
-    const oppZ = zmap(players.map(([id, a]) => ({ id, v: opportunityRaw(a) })))
-    const effZ = zmap(players.map(([id, a]) => ({ id, v: efficiencyRaw(a) })))
-    // Regression is SIGNED against the position's own TD-rate distribution and inverted: a rate
-    // above the mean is unsustainable (negative tilt), below the mean is a buy-low (positive).
-    const tdZ = zmap(players.map(([id, a]) => ({ id, v: tdRate(a) })))
+    // Scales are fitted on the established players, then everyone is scored against them.
+    const anchor = players.filter(([, a]) => reliable(a))
+    if (anchor.length < 5) continue // too thin a population to define a meaningful scale
+    const oppScale = fitScale(anchor.map(([, a]) => opportunityRaw(a)))
+    const effScale = fitScale(anchor.map(([, a]) => efficiencyRaw(a)))
+    const tdScale = fitScale(anchor.map(([, a]) => tdRate(a)))
+
+    // Every charted signal gets its own scale, fitted only on the players it could actually
+    // measure. Fitting on the whole anchor set instead would drag each distribution toward a mean
+    // the unmeasured players never contributed to.
+    const scaleOf = (values: Array<number | null>) => {
+      const present = values.filter((v): v is number => v != null)
+      return present.length >= 5 ? fitScale(present) : null
+    }
+    const skillScale = scaleOf(anchor.map(([id]) => skillIndex(pos, advSkill.get(id))))
+    const snapScale = scaleOf(anchor.map(([id]) => snapShare(advSkill.get(id))))
+
+    // Two signals scaled WITHIN receiving role rather than across the position.
+    //
+    // Yards per target is the obvious one: a vertical receiver at 9.5 is excelling at his job,
+    // and a checkdown back at the same number would be a phenomenon.
+    //
+    // Explosive rate needs the same treatment for a subtler reason. Measured position-wide it
+    // partly just re-reports the role — of course the man running go routes catches more 20-yard
+    // passes than the man running flats. Scaled within role it asks the question we actually
+    // want: is he explosive FOR THE JOB HE HAS. Runners keep a single position-wide scale, since
+    // a carry is a carry.
+    const roleScales = new Map<ReceivingRole, Scale | null>()
+    const roleExplosiveScales = new Map<ReceivingRole, Scale | null>()
+    const gradesWithinRole = pos === "WR" || pos === "TE"
+    {
+      const yptByRole = new Map<ReceivingRole, number[]>()
+      const explosiveByRole = new Map<ReceivingRole, number[]>()
+      for (const [id] of anchor) {
+        const role = receivingRole(depthProfile(plays.get(id)))
+        if (!role) continue
+        const ypt = yardsPerTarget(plays.get(id))
+        if (ypt != null) yptByRole.set(role, [...(yptByRole.get(role) ?? []), ypt])
+        const expl = gradesWithinRole ? explosiveIndex(pos, plays.get(id)) : null
+        if (expl != null) explosiveByRole.set(role, [...(explosiveByRole.get(role) ?? []), expl])
+      }
+      const fitEach = (src: Map<ReceivingRole, number[]>, dst: Map<ReceivingRole, Scale | null>) => {
+        for (const [role, values] of src) dst.set(role, values.length >= 5 ? fitScale(values) : null)
+      }
+      fitEach(yptByRole, roleScales)
+      fitEach(explosiveByRole, roleExplosiveScales)
+    }
+    // Fallback for runners, and for a pass-catcher whose role is too thinly populated to fit.
+    const explosiveScale = scaleOf(anchor.map(([id]) => explosiveIndex(pos, plays.get(id))))
 
     for (const [id, a] of players) {
-      const opp = oppZ.get(id) ?? 0
-      const eff = effZ.get(id) ?? 0
-      const reg = -(tdZ.get(id) ?? 0)
-      const factor_mult = Math.max(
-        MULT_LO,
-        Math.min(MULT_HI, 1 + OPP_W * clampZ(opp) + EFF_W * clampZ(eff) + REG_W * clampZ(reg)),
+      const games = a.games
+      const count = opportunityCount(a)
+      const play = plays.get(id)
+      const adv = advSkill.get(id)
+
+      // Opportunity: how much he did, plus how much his coaches put him on the field. The second
+      // is the more trustworthy of the two and the whole reason snap counts are ingested.
+      const volumeZ = zOn(oppScale, opportunityRaw(a))
+      const snapZ = snapScale ? zed(snapScale, snapShare(adv)) : null
+      const opp = shrinkZ(
+        blendAvailable([
+          { z: volumeZ, weight: 1 - SNAP_SHARE_WEIGHT },
+          { z: snapZ, weight: SNAP_SHARE_WEIGHT },
+        ]),
+        count,
+        games,
+        pos,
+        "volume",
       )
+
+      // Efficiency: four reads on the same question, renormalized over whichever exist. A player
+      // missing the charted feeds is described by the box score alone rather than half-diluted
+      // toward zero by signals we don't have for him.
+      const boxEff = zOn(effScale, efficiencyRaw(a))
+      const advEff = skillScale ? zed(skillScale, skillIndex(pos, adv)) : null
+      const role = receivingRole(depthProfile(play))
+      const roleScale = role ? roleScales.get(role) ?? null : null
+      const roleEff = roleScale ? zed(roleScale, yardsPerTarget(play)) : null
+      // Prefer the within-role scale; fall back to the position-wide one when his role is too
+      // thinly populated to have fitted a scale of its own.
+      const explScale =
+        (gradesWithinRole && role ? roleExplosiveScales.get(role) : null) ?? explosiveScale
+      const explosiveEff = explScale ? zed(explScale, explosiveIndex(pos, play)) : null
+
+      const eff = shrinkZ(
+        blendAvailable([
+          { z: boxEff, weight: EFFICIENCY_WEIGHTS.box },
+          { z: advEff, weight: EFFICIENCY_WEIGHTS.advanced },
+          { z: explosiveEff, weight: EFFICIENCY_WEIGHTS.explosive },
+          { z: roleEff, weight: EFFICIENCY_WEIGHTS.role },
+        ]),
+        count,
+        games,
+        pos,
+        "efficiency",
+      )
+
+      // Regression is SIGNED against the position's own TD-rate distribution and inverted: a rate
+      // above the mean is unsustainable (negative tilt), below the mean is a buy-low (positive).
+      const reg = shrinkZ(-zOn(tdScale, tdRate(a)), count, games, pos, "touchdown")
+
+      const tilts: ComponentTilts = {
+        volume: clampZ(opp),
+        efficiency: clampZ(eff),
+        touchdown: clampZ(reg),
+      }
+      const factor_mult = blendedMultiplier(pos, tilts)
       const vol_mean = mean(a.fpWeekly)
       const vol_sd = stdev(a.fpWeekly, vol_mean)
       out.push({
         season: targetSeason,
         sleeper_id: id,
         position: pos,
+        source: "prior_season",
+        role,
+        adot: depthProfile(play)?.adot == null ? null : round3(depthProfile(play)!.adot),
         opportunity: round3(opp),
         efficiency: round3(eff),
         regression: round3(reg),
+        volume_tilt: round3(tilts.volume),
+        efficiency_tilt: round3(tilts.efficiency),
+        td_tilt: round3(tilts.touchdown),
         factor_mult: round3(factor_mult),
         vol_mean: round3(vol_mean),
         vol_sd: round3(vol_sd),
         games: a.games,
         components: {
-          opp_tilt: round3(OPP_W * clampZ(opp)),
-          eff_tilt: round3(EFF_W * clampZ(eff)),
-          reg_tilt: round3(REG_W * clampZ(reg)),
           td_rate: round3(tdRate(a)),
+          // Each efficiency sub-signal kept separately, so the admin surface can say WHY a
+          // player's read is what it is — and how much of the raw signal survived shrinkage.
+          eff_box: round3(boxEff),
+          eff_advanced: advEff == null ? 0 : round3(advEff),
+          eff_explosive: explosiveEff == null ? 0 : round3(explosiveEff),
+          eff_role: roleEff == null ? 0 : round3(roleEff),
+          has_advanced: advEff == null ? 0 : 1,
+          has_explosive: explosiveEff == null ? 0 : 1,
+          snap_share: snapShare(adv) == null ? 0 : round3(snapShare(adv)!),
+          opportunities: count,
+          shrink_volume: round3(shrinkWeight(count, games, pos, "volume")),
+          shrink_efficiency: round3(shrinkWeight(count, games, pos, "efficiency")),
+          shrink_touchdown: round3(shrinkWeight(count, games, pos, "touchdown")),
         },
       })
     }
+  }
+
+  // Rookies last, and only for ids the measured pass didn't already cover. The order matters:
+  // a player who somehow has both a draft year of this season and real prior-season snaps should
+  // be described by what he did, not by where he was picked.
+  const covered = new Set(out.map((r) => r.sleeper_id))
+  out.push(...(await rookieFactorRows(targetSeason, covered)))
+  return out
+}
+
+interface DraftRow {
+  sleeper_id: string
+  position: string | null
+  draft_year: number | null
+  draft_round: number | null
+  draft_overall: number | null
+}
+
+// Draft-capital rows for this season's incoming class. Any failure here (an unmigrated crosswalk,
+// a class the source hasn't published yet) leaves rookies exactly where they were before this
+// existed — absent, and therefore neutral — rather than failing the whole recompute.
+async function rookieFactorRows(targetSeason: number, covered: Set<string>): Promise<FactorRow[]> {
+  const sb = supabaseAdmin()
+  const { data, error } = await sb
+    .from("player_id_map")
+    .select("sleeper_id,position,draft_year,draft_round,draft_overall")
+    .eq("draft_year", targetSeason)
+    .in("position", ROOKIE_POSITIONS as unknown as string[])
+  if (error) return []
+
+  // Combine results for this class, keyed by sleeper_id. A player who didn't test (or wasn't
+  // invited) simply has no entry and is described by his draft capital alone.
+  const { data: combine } = await sb
+    .from("player_combine")
+    .select("sleeper_id,position,height_in,weight_lb,forty,vertical,broad_jump,cone,shuttle")
+    .eq("draft_year", targetSeason)
+    .not("sleeper_id", "is", null)
+  const athleticBy = new Map<string, Athletic>()
+  for (const c of (combine ?? []) as unknown as Array<Athletic & { sleeper_id: string }>) {
+    athleticBy.set(c.sleeper_id, c)
+  }
+
+  const out: FactorRow[] = []
+  for (const r of (data ?? []) as unknown as DraftRow[]) {
+    const id = r.sleeper_id
+    if (!id || covered.has(id)) continue
+    const capital: DraftCapital = {
+      position: r.position ?? "",
+      draft_year: r.draft_year,
+      draft_round: r.draft_round,
+      draft_overall: r.draft_overall,
+    }
+    if (!isRookie(capital, targetSeason)) continue
+    const athletic = athleticBy.get(id)
+    const tilts = rookieTilts(capital, athletic ? { ...athletic, position: r.position ?? "" } : null)
+    if (!tilts) continue
+
+    const pos = r.position as FactorPos
+    out.push({
+      season: targetSeason,
+      sleeper_id: id,
+      position: pos,
+      source: "rookie",
+      // He hasn't run an NFL route yet, so there is no role to report and no depth to match on.
+      role: null,
+      adot: null,
+      // The z columns describe a measurement, and this isn't one. Null keeps the distinction
+      // visible instead of dressing a prior up as an observation.
+      opportunity: null,
+      efficiency: null,
+      regression: null,
+      volume_tilt: round3(tilts.volume),
+      efficiency_tilt: round3(tilts.efficiency),
+      td_tilt: 0,
+      factor_mult: round3(blendedMultiplier(pos, tilts)),
+      // No weekly series to measure dispersion from; start/sit falls back to its position-typical
+      // spread, which is the honest answer for a player who hasn't played.
+      vol_mean: 0,
+      vol_sd: 0,
+      games: 0,
+      components: {
+        draft_overall: r.draft_overall ?? 0,
+        draft_round: r.draft_round ?? 0,
+        athletic: athletic ? round3(athleticTilt({ ...athletic, position: r.position ?? "" }) ?? 0) : 0,
+        has_combine: athletic ? 1 : 0,
+      },
+    })
   }
   return out
 }

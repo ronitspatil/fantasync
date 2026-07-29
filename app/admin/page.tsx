@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities"
 import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2, Activity, Layers } from "lucide-react"
 import { valueForSlot, assignOverallTiers } from "@/lib/engine/compose-rankings"
+import { STAGES, stepsForStage } from "@/lib/engine/pipeline"
 import { computeValueScoreScale, valueToScore, scoreToValue, type ValueScoreScale } from "@/lib/engine/value-score"
 import type { AdminRankingRow } from "@/app/api/admin/rankings/route"
 import type { AdminProjectionRow } from "@/app/api/admin/projections/route"
@@ -321,33 +322,25 @@ function SleeperUsage() {
   )
 }
 
-const CRON_JOBS = [
-  { path: "ingest-weekly", label: "Ingest weekly", hint: "Stats, schedules & Vegas lines" },
-  { path: "compute-projections", label: "Compute projections", hint: "Run after ingest" },
-  { path: "compute-rankings", label: "Compute rankings", hint: "Rebuild the base board" },
-  { path: "compute-dvp", label: "Compute DvP", hint: "Projected defense-vs-position" },
-  { path: "compute-factors", label: "Compute factors", hint: "Opportunity, efficiency, regression" },
-  { path: "log-calibration", label: "Log calibration", hint: "Projected vs actual, per completed week" },
-] as const
-
-// Manual triggers for the data-pipeline crons, so the admin can run them on demand instead of
-// waiting for the schedule. Auth is the same admin cookie — the route wrapper forwards to the cron.
+// Manual triggers for the data-pipeline jobs, so the admin can run them on demand instead of
+// waiting for the schedule. Auth is the same admin cookie.
+//
+// Rendered as numbered stages in dependency order, straight from lib/engine/pipeline.ts. The
+// order is the whole point: running these out of sequence doesn't error, it publishes a board
+// built on stale signals, which is harder to notice and worse.
 function CronRunners() {
   const [running, setRunning] = useState<string | null>(null)
   const [msg, setMsg] = useState<Record<string, string>>({})
 
-  async function run(path: string) {
-    setRunning(path)
-    setMsg((m) => ({ ...m, [path]: "" }))
+  async function run(job: string) {
+    setRunning(job)
+    setMsg((m) => ({ ...m, [job]: "" }))
     try {
-      const res = await fetch(`/api/admin/run-cron?job=${encodeURIComponent(path)}`, { method: "POST" })
+      const res = await fetch(`/api/admin/run-cron?job=${encodeURIComponent(job)}`, { method: "POST" })
       const d = await res.json()
-      setMsg((m) => ({
-        ...m,
-        [path]: res.ok ? (d.error ? `Error: ${d.error}` : "Done") : d.error ? `Error: ${d.error}` : "Failed",
-      }))
+      setMsg((m) => ({ ...m, [job]: summarize(res.ok, d) }))
     } catch {
-      setMsg((m) => ({ ...m, [path]: "Failed" }))
+      setMsg((m) => ({ ...m, [job]: "Failed" }))
     } finally {
       setRunning(null)
     }
@@ -360,26 +353,69 @@ function CronRunners() {
         <h2 className="text-sm font-semibold text-white">Data pipeline</h2>
       </div>
       <p className="mb-3 text-xs text-[#919191]">
-        Run a pipeline job now (also scheduled via cron). Ingest → projections → rankings, in that order.
+        Each stage depends on the one above it. Run them top to bottom, or run everything at once.
       </p>
-      <div className="space-y-2">
-        {CRON_JOBS.map((j) => (
-          <div key={j.path} className="flex items-center gap-3">
-            <button
-              onClick={() => run(j.path)}
-              disabled={running != null}
-              className="flex w-52 items-center gap-2 rounded-md border border-[#1F1F1F] px-3 py-2 text-sm text-white hover:border-[#a5f3fc] disabled:opacity-50"
-            >
-              {running === j.path ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              {j.label}
-            </button>
-            <span className="text-xs text-[#6b6b6b]">{j.hint}</span>
-            {msg[j.path] && <span className="text-xs text-[#919191]">{msg[j.path]}</span>}
+
+      <button
+        onClick={() => run("all")}
+        disabled={running != null}
+        className="mb-5 flex items-center gap-2 rounded-md border border-[#a5f3fc]/40 bg-[#a5f3fc]/5 px-3 py-2 text-sm font-medium text-[#a5f3fc] hover:border-[#a5f3fc] disabled:opacity-50"
+      >
+        {running === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+        Run full pipeline
+        {msg.all && <span className="ml-1 text-xs font-normal text-[#919191]">{msg.all}</span>}
+      </button>
+      <p className="-mt-4 mb-5 text-xs text-[#4b4b4b]">
+        A full run takes a few minutes and can time out on a deployed instance — run the stages
+        one at a time there.
+      </p>
+
+      <div className="space-y-5">
+        {STAGES.map((stage) => (
+          <div key={stage.key}>
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#a5f3fc]">
+              {stage.label}
+            </div>
+            <p className="mb-2 text-xs text-[#6b6b6b]">{stage.blurb}</p>
+            <div className="space-y-2">
+              {stepsForStage(stage.key).map((step) => (
+                <div key={step.job} className="flex items-center gap-3">
+                  <button
+                    onClick={() => run(step.job)}
+                    disabled={running != null}
+                    className="flex w-52 items-center gap-2 rounded-md border border-[#1F1F1F] px-3 py-2 text-sm text-white hover:border-[#a5f3fc] disabled:opacity-50"
+                  >
+                    {running === step.job ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" />
+                    )}
+                    {step.label}
+                  </button>
+                  <span className="text-xs text-[#6b6b6b]">
+                    {step.hint}
+                    {step.slow && <span className="ml-1 text-[#4b4b4b]">· slow</span>}
+                  </span>
+                  {msg[step.job] && <span className="text-xs text-[#919191]">{msg[step.job]}</span>}
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
     </section>
   )
+}
+
+// A full-pipeline run reports per-step outcomes, so surface how many steps failed rather than a
+// bare "Done" that hides a feed that didn't come back.
+function summarize(ok: boolean, d: { error?: string; steps?: unknown[]; failed?: number }): string {
+  if (!ok || d.error) return `Error: ${d.error ?? "failed"}`
+  if (Array.isArray(d.steps)) {
+    const failed = d.failed ?? 0
+    return failed > 0 ? `${d.steps.length - failed}/${d.steps.length} steps` : `Done · ${d.steps.length} steps`
+  }
+  return "Done"
 }
 
 // Full-viewport centered wrapper — used by the loading + login states.

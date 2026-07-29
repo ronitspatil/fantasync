@@ -2,6 +2,11 @@
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { cached } from "@/lib/server-cache"
 import { computePlayerFactors, type FactorRow } from "@/lib/engine/factors/compute"
+import {
+  componentMultiplier,
+  NEUTRAL_TILTS,
+  type ComponentTilts,
+} from "@/lib/engine/factors/components"
 
 const FACTORS_TTL_MS = 15 * 60 * 1000
 
@@ -25,9 +30,15 @@ export async function refreshPlayerFactors(targetSeason: number): Promise<{ seas
     season: r.season,
     sleeper_id: r.sleeper_id,
     position: r.position,
+    source: r.source,
+    role: r.role,
+    adot: r.adot,
     opportunity: r.opportunity,
     efficiency: r.efficiency,
     regression: r.regression,
+    volume_tilt: r.volume_tilt,
+    efficiency_tilt: r.efficiency_tilt,
+    td_tilt: r.td_tilt,
     factor_mult: r.factor_mult,
     vol_mean: r.vol_mean,
     vol_sd: r.vol_sd,
@@ -69,7 +80,7 @@ export async function getFactorMap(season: number): Promise<Map<string, FactorSt
     const { data, error } = await supabaseAdmin()
       .from("player_factors")
       .select(
-        "season,sleeper_id,position,opportunity,efficiency,regression,factor_mult,vol_mean,vol_sd,games,components,override_mult",
+        "season,sleeper_id,position,source,role,adot,opportunity,efficiency,regression,volume_tilt,efficiency_tilt,td_tilt,factor_mult,vol_mean,vol_sd,games,components,override_mult",
       )
       .eq("season", season)
     if (error) throw new Error(`read player_factors: ${error.message}`)
@@ -81,11 +92,58 @@ export async function getFactorMap(season: number): Promise<Map<string, FactorSt
 
 // Season-value multiplier for a player: admin override wins, else the computed factor_mult, else
 // neutral (unknown player / below sample gate — let the projection stand).
+//
+// This is the single-number form, for surfaces that hold no projected stat line. Where a line IS
+// available, prefer factorLineMult below: same signals, but each applied to the points it explains
+// instead of averaged across the whole projection.
 export function factorMult(map: Map<string, FactorStored>, sleeperId: string | null | undefined): number {
   if (!sleeperId) return 1
   const row = map.get(sleeperId)
   if (!row) return 1
   return row.override_mult ?? row.factor_mult ?? 1
+}
+
+// A player's measured average depth of target, if he caught enough passes for it to mean
+// anything. Feeds the read-time scheme-fit term, which compares it against the passing depth of
+// whatever team he's on NOW.
+export function playerAdot(
+  map: Map<string, FactorStored>,
+  sleeperId: string | null | undefined,
+): number | null {
+  if (!sleeperId) return null
+  return map.get(sleeperId)?.adot ?? null
+}
+
+// The stored tilts for a player, or neutral if we have none. An admin override is a deliberate
+// whole-player thumb on the scale, so it bypasses the component split entirely (see factorLineMult).
+export function factorTilts(
+  map: Map<string, FactorStored>,
+  sleeperId: string | null | undefined,
+): ComponentTilts {
+  if (!sleeperId) return NEUTRAL_TILTS
+  const row = map.get(sleeperId)
+  if (!row) return NEUTRAL_TILTS
+  return {
+    volume: row.volume_tilt ?? 0,
+    efficiency: row.efficiency_tilt ?? 0,
+    touchdown: row.td_tilt ?? 0,
+  }
+}
+
+// Component-aware multiplier for a player whose projected stat line we have. Returns a plain
+// scalar so call sites stay one multiply, but arrives at it by tilting receptions, yardage and
+// touchdowns separately.
+export function factorLineMult(
+  map: Map<string, FactorStored>,
+  sleeperId: string,
+  position: string,
+  line: Record<string, number>,
+  scoring: Record<string, number>,
+  totalPoints: number,
+): number {
+  const override = map.get(sleeperId)?.override_mult
+  if (override != null) return override
+  return componentMultiplier(position, line, scoring, factorTilts(map, sleeperId), totalPoints)
 }
 
 // Weekly dispersion for start/sit: returns a coefficient of variation (sd/mean) for the player,

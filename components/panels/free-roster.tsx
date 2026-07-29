@@ -112,21 +112,27 @@ export function FreeRoster() {
   const mineValued = useMemo<ValuedPlayer[]>(() => {
     if (!players) return []
     return myIds
-      .map((id) => ({ id, position: players[id]?.position ?? "", value: valueOf(id) }))
+      .map((id) => ({ id, position: players[id]?.position ?? "", value: valueOf(id), points: projOf(id) }))
       .filter((p) => p.position)
-  }, [players, myIds, valueOf])
+  }, [players, myIds, valueOf, projOf])
 
   // Grade against a league that doesn't exist: the other teamCount-1 rosters are snake-drafted
   // from whatever the user hasn't already claimed.
   const grades = useMemo<GradeRow[]>(() => {
     if (!players || !served.available || !served.model || mineValued.length === 0) return []
     const mineSet = new Set(myIds)
-    const pool: ValuedPlayer[] = Object.values(players)
-      .filter((p) => p.position && isFantasyRelevant(p.position) && served.hasValue(p.id) && !mineSet.has(p.id))
-      .map((p) => ({ id: p.id, position: p.position as string, value: valueOf(p.id) }))
+    // The whole board, best-first. `undrafted` (my players removed) stocks the synthetic
+    // opponents; `board` stays complete because the grade's ceiling is "the best group that
+    // exists", which must still include the players I already hold.
+    const board: ValuedPlayer[] = Object.values(players)
+      .filter((p) => p.position && isFantasyRelevant(p.position) && served.hasValue(p.id))
+      // `points` only matters for K/DEF, whose values are all pinned to the model's stream cap —
+      // the projection is the only thing left that distinguishes the best kicker from a waiver one.
+      .map((p) => ({ id: p.id, position: p.position as string, value: valueOf(p.id), points: projOf(p.id) }))
       .sort((a, b) => b.value - a.value)
+    const undrafted = board.filter((p) => !mineSet.has(p.id))
 
-    const opponents = draftSyntheticTeams(pool, Math.max(1, teamCount - 1), rosterPositions)
+    const opponents = draftSyntheticTeams(undrafted, Math.max(1, teamCount - 1), rosterPositions)
     return positionGrades({
       model: served.model,
       rosterPositions,
@@ -135,9 +141,10 @@ export function FreeRoster() {
         ...opponents.map((roster, i) => ({ id: `opp-${i}`, players: roster })),
       ],
       myId: "me",
+      pool: board,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [players, served.available, served.model, mineValued, myIds, teamCount, rosterPositions, valueOf])
+  }, [players, served.available, served.model, mineValued, myIds, teamCount, rosterPositions, valueOf, projOf])
 
   const overall = grades.find((g) => g.position === "Depth")?.grade ?? null
 

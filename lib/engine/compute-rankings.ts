@@ -17,8 +17,9 @@ import { normalizePlayerName, type Scoring } from "@/lib/sleeper"
 import { buildSeasonBoard, DEFAULT_FORMATS, type BoardPlayerMeta } from "@/lib/engine/rankings"
 import { smoothSeasonValue } from "@/lib/engine/smoothing"
 import { assignTiers } from "@/lib/engine/tiers"
-import { getFactorMap, factorMult } from "@/lib/engine/factors/store"
+import { getFactorMap, factorLineMult, playerAdot } from "@/lib/engine/factors/store"
 import { buildSeasonSos } from "@/lib/engine/factors/schedule"
+import { buildTeamSituation } from "@/lib/engine/factors/situation"
 import type { SeasonProjection } from "@/app/api/sleeper/season-projections/route"
 import type { SlimPlayer } from "@/lib/sleeper"
 
@@ -51,13 +52,33 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
 
   // Season factor accessor: profile prior (opportunity/efficiency/regression) × rest-of-season
   // SoS, resolved here where the team lookup lives. Neutral for players/positions not covered.
-  const [factors, seasonSos] = await Promise.all([
+  const [factors, seasonSos, teamSituation] = await Promise.all([
     getFactorMap(season).catch(() => new Map()),
     buildSeasonSos(season),
+    // Situation is measured from the completed prior season but resolved against a player's
+    // CURRENT team, so a free agent who signs somewhere new picks up his new line right away.
+    buildTeamSituation(season - 1),
   ])
-  const seasonFactorMult = (id: string): number => {
+  // Three deliberately separate terms:
+  //   player    — component-aware when a projected line is available (volume, efficiency and TD
+  //               regression each applied to the points they explain).
+  //   situation — his own offense: run blocking, protection, who's throwing it.
+  //   schedule  — the defenses he'll face.
+  // Kept apart rather than pre-multiplied into one prior so each can be inspected, tuned and
+  // calibrated on its own.
+  const seasonFactorMult = (
+    id: string,
+    position: string,
+    line: Record<string, number>,
+    scoring: Record<string, number>,
+    rawPoints: number,
+  ): number => {
     const p = players[id]
-    return factorMult(factors, id) * seasonSos.sos(p?.team ?? null, p?.position ?? null)
+    return (
+      factorLineMult(factors, id, position, line, scoring, rawPoints) *
+      teamSituation.situation(p?.team ?? null, p?.position ?? null, playerAdot(factors, id)) *
+      seasonSos.sos(p?.team ?? null, p?.position ?? null)
+    )
   }
 
   // Season-long value is not tied to a played-games count in the preseason (no games yet), so

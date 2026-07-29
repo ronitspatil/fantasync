@@ -58,10 +58,7 @@ export function buildValueModel({ players, rosters, rosterPositions, totalRoster
     for (const [pos, d] of Object.entries(perTeam)) leagueStarts[pos] = d * totalRosters
   }
 
-  // Bench buffer: deeper benches → managers stash/stream → replacement level sits deeper.
-  const starters = startingSlots(rosterPositions).length
-  const bench = rosterPositions.filter((p) => p === "BN").length
-  const benchBuffer = 1 + 0.5 * (starters > 0 ? bench / starters : 0)
+  const buffer = benchBuffer(rosterPositions)
 
   // 2. Per-position value curve, replacement level, and scarcity slope.
   const byPosition: Record<string, PositionModel> = {}
@@ -72,7 +69,7 @@ export function buildValueModel({ players, rosters, rosterPositions, totalRoster
     const demand = leagueStarts[position] ?? 0
     // Replacement rank: league-wide starting demand, pushed deeper by bench buffer. Floor
     // at 1 and, for streamed positions with tiny demand, a small minimum pool.
-    const replacementRank = Math.max(1, Math.round(demand * benchBuffer))
+    const replacementRank = Math.max(1, Math.round(demand * buffer))
     const replacementValue = valueAtRank(sorted, replacementRank)
     const slope = curveSlope(sorted, replacementRank)
     byPosition[position] = { position, sorted, replacementRank, replacementValue, scarcityMult: 1, slope, spreadNorm: 1 }
@@ -196,6 +193,10 @@ function groupValues(players: ValuedPlayer[]): Record<string, number[]> {
 // Estimate per-team positional demand from slot definitions when live rosters aren't
 // available. Strict slots count fully; flex slots are distributed across eligible
 // positions by typical fill shares (superflex is mostly QB in practice).
+//
+// Also the basis for team-grade ceilings: the fractional result is what makes "the best TE room
+// you can have" mean one elite TE plus a tenth of a second, rather than two elite TEs starting
+// side by side — a lineup almost nobody actually fields, because a good RB or WR takes the FLEX.
 const FLEX_SHARES: Record<string, Record<string, number>> = {
   FLEX: { RB: 0.45, WR: 0.45, TE: 0.1 },
   WRRB_FLEX: { RB: 0.5, WR: 0.5 },
@@ -203,7 +204,20 @@ const FLEX_SHARES: Record<string, Record<string, number>> = {
   SUPER_FLEX: { QB: 0.8, RB: 0.08, WR: 0.1, TE: 0.02 },
 }
 
-function estimateDemand(rosterPositions: string[]): Record<string, number> {
+/**
+ * How much deeper than raw starting demand a position is really rostered, given this league's
+ * bench. Deeper benches → managers stash and stream → the startable pool runs past the starters.
+ *
+ * Sets replacement level here, and the horizon for "is this player startable at all" in the team
+ * grader — the same question, so it gets the same answer.
+ */
+export function benchBuffer(rosterPositions: string[]): number {
+  const starters = startingSlots(rosterPositions).length
+  const bench = rosterPositions.filter((p) => p === "BN").length
+  return 1 + 0.5 * (starters > 0 ? bench / starters : 0)
+}
+
+export function estimateDemand(rosterPositions: string[]): Record<string, number> {
   const demand: Record<string, number> = {}
   for (const code of rosterPositions) {
     if (NON_STARTER.has(code)) continue

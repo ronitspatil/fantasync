@@ -10,10 +10,18 @@ export interface FfPlayerId {
   sleeper_id: string | null
   gsis_id: string | null
   fantasypros_id: string | null
+  // Pro Football Reference id — the join key for their advanced splits (yards before/after
+  // contact, pressure rate, drop rate). See lib/datasources/nflverse/adv-stats.ts.
+  pfr_id: string | null
   name: string
   merge_name: string
   position: string | null
   team: string | null
+  // Draft capital, the only real signal we have on a player with no NFL snaps yet.
+  draft_year: number | null
+  draft_round: number | null
+  draft_overall: number | null
+  college: string | null
 }
 
 let cache: { at: number; rows: FfPlayerId[] } | null = null
@@ -32,10 +40,15 @@ export async function fetchFfPlayerIds(): Promise<FfPlayerId[]> {
       sleeper_id: naOrNull(row.sleeper_id),
       gsis_id: naOrNull(row.gsis_id),
       fantasypros_id: naOrNull(row.fantasypros_id),
+      pfr_id: naOrNull(row.pfr_id),
       name: row.name,
       merge_name: row.merge_name,
       position: naOrNull(row.position),
       team: naOrNull(row.team),
+      draft_year: numOrNull(row.draft_year),
+      draft_round: numOrNull(row.draft_round),
+      draft_overall: numOrNull(row.draft_ovr),
+      college: naOrNull(row.college),
     }))
     .filter((r) => r.sleeper_id || r.gsis_id)
 
@@ -46,6 +59,13 @@ export async function fetchFfPlayerIds(): Promise<FfPlayerId[]> {
 function naOrNull(v: string | undefined): string | null {
   if (!v || v === "NA") return null
   return v
+}
+
+function numOrNull(v: string | undefined): number | null {
+  const s = naOrNull(v)
+  if (s == null) return null
+  const n = Number(s)
+  return Number.isFinite(n) ? n : null
 }
 
 // Community dynasty trade values (KeepTradeCut-style), keyed by FantasyPros id (fp_id).

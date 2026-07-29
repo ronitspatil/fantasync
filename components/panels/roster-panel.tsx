@@ -197,7 +197,7 @@ function RosterContent() {
   }, [])
 
   // League-adaptive VORP value model (rest-of-season). Powers the position grades below.
-  const { model, valueOf, available: valuesOn } = useEngineValues(season, week)
+  const { model, valueOf, hasValue, available: valuesOn } = useEngineValues(season, week)
   // Weekly engine projections carry the opportunity-trend signal (form_slope) for waivers.
   const { scored: weeklyEngine } = useEngineProjections(season, week)
 
@@ -210,6 +210,15 @@ function RosterContent() {
     const rp = league.roster_positions
 
     if (valuesOn && model) {
+      // The full board, free agents included — the grade's ceiling is "the best group that
+      // exists at this position", which shouldn't move just because nobody drafted the guy.
+      // No `points` needed here: on this path `valueOf` already IS the raw projection (the value
+      // model applies its K/DEF cap downstream, in adjustedVorp), so the grader's `points ?? value`
+      // fallback reads the projection either way.
+      const pool = Object.values(players)
+        .filter((p) => p.position && isFantasyRelevant(p.position) && hasValue(p.id))
+        .map((p) => ({ id: p.id, position: p.position as string, value: valueOf(p.id) }))
+
       return positionGrades({
         model,
         rosterPositions: rp,
@@ -220,6 +229,7 @@ function RosterContent() {
             .filter((p) => p.position) as ValuedPlayer[],
         })),
         myId: myRoster.roster_id,
+        pool,
       })
     }
 
@@ -253,7 +263,7 @@ function RosterContent() {
     rows.push(gradePosition("K/DEF", (roster) => sumByPos(roster, "K") + sumByPos(roster, "DEF")))
     rows.push(gradePosition("Depth", depthValue))
     return rows
-  }, [league, bundle, players, myRoster, proj, scoring, model, valuesOn, valueOf])
+  }, [league, bundle, players, myRoster, proj, scoring, model, valuesOn, valueOf, hasValue])
 
   const weakPositions = useMemo(() => {
     if (!league || !players || !myRoster) return new Set<string>()

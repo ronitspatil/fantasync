@@ -97,7 +97,18 @@ export interface SeasonBoardInput {
   // Season factor multiplier per player (profile prior × rest-of-season SoS), pre-resolved by the
   // caller (which holds the team lookup the factor/SoS need). Applied to non-K/DEF alongside the
   // context nudge. Omitted ⇒ neutral (1.0) — keeps the pure builder usable without the DB layer.
-  factorMult?: (id: string) => number
+  //
+  // The projected line and its scored total are handed through so the factors layer can tilt
+  // receptions, yardage and touchdowns separately rather than scaling the whole projection by one
+  // number (lib/engine/factors/components.ts). Callers that don't need them can ignore the extra
+  // arguments — a plain `(id) => number` still satisfies this.
+  factorMult?: (
+    id: string,
+    position: string,
+    line: Record<string, number>,
+    scoring: Record<string, number>,
+    rawPoints: number,
+  ) => number
 }
 
 export interface BoardEntry {
@@ -142,7 +153,7 @@ export function buildSeasonBoard(input: SeasonBoardInput): SeasonBoard {
     const ctxMult = SPECIAL.has(pos)
       ? 1
       : playerContextMult(contextFromSleeperLine(pos, sp.line, meta?.age ?? null)) *
-        (input.factorMult?.(id) ?? 1)
+        (input.factorMult?.(id, pos, sp.line, scoring, rawPts) ?? 1)
     const seasonPts = rawPts * ctxMult
     preBlend.push({ id, position: pos, value: seasonPts })
     const adp = sp.adp?.[adpKey]

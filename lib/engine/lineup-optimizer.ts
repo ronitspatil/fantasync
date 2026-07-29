@@ -17,6 +17,12 @@ export interface ValuedPlayer {
   id: string
   position: string
   value: number
+  // Raw projected points, when the caller has them. The optimizer ignores this — it exists for
+  // consumers that need the projection *behind* a value rather than the value itself. The team
+  // grader is the one that does: K/DEF values are deliberately clamped to a cap by the value
+  // model, so every kicker looks identical in `value` and only `points` still says which one is
+  // actually the best.
+  points?: number
 }
 
 export interface LineupResult {

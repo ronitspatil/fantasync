@@ -55,6 +55,7 @@ const SELECT_STYLE: React.CSSProperties = {
 export default function AdminPage() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [configured, setConfigured] = useState(true)
+  const [weak, setWeak] = useState<{ weak: boolean; min: number }>({ weak: false, min: 12 })
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -62,6 +63,7 @@ export default function AdminPage() {
       .then((d) => {
         setAuthed(Boolean(d.authed))
         setConfigured(Boolean(d.configured))
+        setWeak({ weak: Boolean(d.weakPassword), min: Number(d.minPasswordLength) || 12 })
       })
       .catch(() => setAuthed(false))
   }, [])
@@ -73,16 +75,31 @@ export default function AdminPage() {
       </Centered>
     )
   if (!authed) return <Login configured={configured} onAuthed={() => setAuthed(true)} />
-  return <Console />
+  return <Console weak={weak} />
+}
+
+// Shown once signed in, when ADMIN_PASSWORD is short enough that rate limiting is the only thing
+// holding the door. Deliberately not shown to anonymous visitors — telling them the password is
+// weak would be the single most useful hint an attacker could get.
+function WeakPasswordBanner({ min }: { min: number }) {
+  return (
+    <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+      <span className="font-semibold">ADMIN_PASSWORD is short.</span> Rate limiting caps guesses at
+      5 per address per 15 minutes, but a short password is still the weakest part of this setup.
+      Use at least {min} characters — ideally a generated passphrase. Rotating it also signs out
+      every existing session.
+    </div>
+  )
 }
 
 type Tab = "rankings" | "projections" | "news" | "settings"
 
 // Authed admin console: a tab switcher across the editors, the news feed, and settings.
-function Console() {
+function Console({ weak }: { weak: { weak: boolean; min: number } }) {
   const [tab, setTab] = useState<Tab>("rankings")
   return (
     <Shell>
+      {weak.weak && <WeakPasswordBanner min={weak.min} />}
       <div className="mb-6 flex gap-1 border-b border-[#1F1F1F]">
         {(["rankings", "projections", "news", "settings"] as Tab[]).map((t) => (
           <button

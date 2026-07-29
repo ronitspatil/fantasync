@@ -1,12 +1,14 @@
-// Admin logout: clear the admin cookie (Phase 3d).
+// Admin logout: clear the session cookie.
 export const fetchCache = "force-no-store"
 
-import { ADMIN_COOKIE } from "@/lib/admin-auth"
+import { clearedSessionCookie } from "@/lib/admin-auth"
 
+// No auth check and no origin check on purpose. Logging someone out is not a harmful action, and
+// refusing an unauthenticated logout would only make it harder to clear a session that's already
+// in a bad state.
 export async function POST() {
-  const cookie = `${ADMIN_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,
-    headers: { "content-type": "application/json", "set-cookie": cookie },
+    headers: { "content-type": "application/json", "set-cookie": clearedSessionCookie() },
   })
 }

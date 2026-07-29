@@ -7,13 +7,11 @@ export const fetchCache = "force-no-store"
 export const maxDuration = 60
 
 import { computeSeasonRankings } from "@/lib/engine/compute-rankings"
+import { checkCronAuth } from "@/lib/cron-auth"
 
 export async function POST(req: Request) {
-  const secret = process.env.CRON_SECRET
-  if (!secret) return Response.json({ error: "CRON_SECRET not configured" }, { status: 500 })
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return Response.json({ error: "unauthorized" }, { status: 401 })
-  }
+  const unauthorized = checkCronAuth(req)
+  if (unauthorized) return unauthorized
 
   const { origin, searchParams } = new URL(req.url)
   const season = intParam(searchParams.get("season"), targetSeason())

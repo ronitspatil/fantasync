@@ -11,9 +11,10 @@ export const fetchCache = "force-no-store"
 export const maxDuration = 60
 
 import { ingestAdvanced, ingestWeekly } from "@/lib/datasources/ingest"
+import { checkCronAuth } from "@/lib/cron-auth"
 
 export async function POST(req: Request) {
-  const unauthorized = checkAuth(req)
+  const unauthorized = checkCronAuth(req)
   if (unauthorized) return unauthorized
 
   const { searchParams } = new URL(req.url)
@@ -38,18 +39,6 @@ export async function POST(req: Request) {
 
 // Vercel Cron issues GET requests, so support both verbs.
 export const GET = POST
-
-function checkAuth(req: Request): Response | null {
-  const secret = process.env.CRON_SECRET
-  if (!secret) {
-    return Response.json({ error: "CRON_SECRET not configured" }, { status: 500 })
-  }
-  const auth = req.headers.get("authorization")
-  if (auth !== `Bearer ${secret}`) {
-    return Response.json({ error: "unauthorized" }, { status: 401 })
-  }
-  return null
-}
 
 function parseSeason(raw: string | null): number {
   const n = raw ? parseInt(raw, 10) : NaN

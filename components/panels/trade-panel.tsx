@@ -128,9 +128,9 @@ function FreeTrade() {
   }
 
   return (
-    // The cards stretch to the height of the left nav rail (which is sticky at calc(100vh-8rem)),
-    // so "Trade value" bottoms out level with it instead of leaving dead space below.
-    <div className="flex flex-col gap-6 xl:h-[calc(100vh-8rem)]">
+    // The cards stretch to fill the viewport so "Trade value" bottoms out cleanly instead of
+    // leaving dead space below. 7rem is the main element's own vertical padding at xl.
+    <div className="flex flex-col gap-6 xl:h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
         <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <ArrowLeftRight className="h-5 w-5 text-[#a5f3fc]" />
@@ -431,8 +431,8 @@ function TradeContent() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header + both sides + the verdict form one screen-height block, so "Trade value" bottoms
-          out level with the sticky left nav rail. Suggested trades scroll in below it. */}
-      <div className="flex flex-col gap-6 xl:h-[calc(100vh-8rem)]">
+          out at the fold. Suggested trades scroll in below it. */}
+      <div className="flex flex-col gap-6 xl:h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
         <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <ArrowLeftRight className="h-5 w-5 text-[#a5f3fc]" />

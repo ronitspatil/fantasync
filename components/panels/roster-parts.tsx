@@ -1,9 +1,11 @@
 "use client"
 
-// Presentational pieces shared by the synced roster panel and the no-league roster builder.
-// They live here rather than in either panel so neither has to import from the other.
+// Presentational pieces shared across the roster-shaped panels (synced roster, the no-league
+// roster builder, and the mock draft room). They live here rather than in any one panel so no
+// panel has to import from another.
 
 import { useEffect, useState } from "react"
+import { Minus, Plus } from "lucide-react"
 import {
   Radar,
   RadarChart,
@@ -19,6 +21,77 @@ import type { SlimPlayer } from "@/lib/sleeper"
 
 export function Card({ children, className }: { children: React.ReactNode; className?: string }) {
   return <div className={cn("bg-[#0D0D0D] rounded-2xl p-4 sm:p-6", className)}>{children}</div>
+}
+
+// Segmented control for switching a panel between two or three views.
+export function Toggle<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { key: T; label: string; disabled?: boolean; title?: string }[]
+  value: T
+  onChange: (v: T) => void
+}) {
+  return (
+    <div className="flex items-center bg-[#1A1A1A] rounded-lg p-1">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => !o.disabled && onChange(o.key)}
+          disabled={o.disabled}
+          title={o.title}
+          className={cn(
+            "px-3 py-1 text-xs rounded-md transition-colors",
+            o.disabled
+              ? "cursor-not-allowed text-[#4A4A4A]"
+              : value === o.key
+                ? "bg-[#2A2A2A] text-white"
+                : "text-[#919191] hover:text-white",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// Minus/plus counter used wherever a roster slot count is edited.
+export function Stepper({
+  value,
+  max,
+  min = 0,
+  onChange,
+  label,
+}: {
+  value: number
+  max: number
+  min?: number
+  onChange: (v: number) => void
+  label: string
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => onChange(Math.max(min, value - 1))}
+        disabled={value <= min}
+        className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1A1A1A] text-[#919191] transition-colors hover:text-white disabled:opacity-30"
+        aria-label={`Fewer ${label}`}
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </button>
+      <span className="w-5 text-center text-sm font-semibold tabular-nums text-white">{value}</span>
+      <button
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={value >= max}
+        className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1A1A1A] text-[#919191] transition-colors hover:text-white disabled:opacity-30"
+        aria-label={`More ${label}`}
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  )
 }
 
 export function RosterGroup({

@@ -128,6 +128,50 @@
     background-color: #a5f3fc;
     color: #000000;
   }
+
+  /*
+   * Cursor affordance.
+   *
+   * Tailwind v4's preflight sets `cursor: default` on buttons to match the raw browser default,
+   * which leaves every button on the site with an arrow. Rather than sprinkle `cursor-pointer`
+   * across hundreds of call sites (and inevitably miss some), restore the pointer here for the
+   * things that are genuinely activatable, and leave everything else alone.
+   *
+   * Deliberately narrow: text inputs, plain text, cards, and static rows keep the default cursor.
+   * Labels only qualify when they wrap a control that a click actually toggles.
+   */
+  button,
+  summary,
+  a[href],
+  select,
+  input:is([type='button'], [type='reset'], [type='submit'], [type='checkbox'], [type='radio'], [type='file'], [type='color']),
+  [role='button'],
+  [role='link'],
+  [role='tab'],
+  [role='option'],
+  [role='menuitem'],
+  [role='menuitemcheckbox'],
+  [role='menuitemradio'],
+  [role='switch'],
+  [role='checkbox'],
+  [role='radio'],
+  [role='combobox'],
+  label:has(> input:is([type='checkbox'], [type='radio'], [type='file'])) {
+    cursor: pointer;
+  }
+
+  /*
+   * ...but never on something that can't be activated. This has to come after the block above to
+   * win, and it stays out of the way of the `disabled:cursor-not-allowed` utilities already used
+   * in places — those sit in the utilities layer and outrank anything here.
+   */
+  :disabled,
+  [aria-disabled='true'],
+  /* Radix marks disabled state with a bare `data-disabled`, but some components write an explicit
+     `data-disabled="false"` when enabled — exclude that so it doesn't disable the affordance. */
+  [data-disabled]:not([data-disabled='false']) {
+    cursor: default;
+  }
 }
 
 /* Added utility to hide scrollbars */

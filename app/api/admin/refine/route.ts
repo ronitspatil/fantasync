@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   }
 
   const result = await runRefiner(season, { scope, week, dryRun: preview })
-  // A refiner-level failure (e.g. Gemini auth/transport) is reported in the body, not as a 500,
+  // A refiner-level failure (e.g. Groq auth/transport) is reported in the body, not as a 500,
   // so the admin UI can show a clear message.
   return Response.json(result)
 }

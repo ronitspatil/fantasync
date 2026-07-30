@@ -15,7 +15,7 @@ import {
 } from "@/lib/sleeper"
 import { formatLeagueId, parseLeagueId, type Provider } from "@/lib/providers/types"
 
-export type Tab = "league" | "roster" | "start-sit" | "trade" | "players"
+export type Tab = "league" | "roster" | "start-sit" | "trade" | "players" | "research" | "draft"
 export type SyncStatus = "unsynced" | "loading" | "synced" | "error"
 
 const STORAGE_KEY = "fantasync.sync"

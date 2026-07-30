@@ -24,6 +24,7 @@ import type { AdminRankingRow } from "@/app/api/admin/rankings/route"
 import type { AdminProjectionRow } from "@/app/api/admin/projections/route"
 import type { NewsItem } from "@/app/api/admin/news/route"
 import type { SleeperUsageResponse } from "@/app/api/admin/sleeper-usage/route"
+import { AdminArticleManager } from "@/components/admin-article-manager"
 import { cn } from "@/lib/utils"
 
 const SEASON = 2026
@@ -55,7 +56,6 @@ const SELECT_STYLE: React.CSSProperties = {
 export default function AdminPage() {
   const [authed, setAuthed] = useState<boolean | null>(null)
   const [configured, setConfigured] = useState(true)
-  const [weak, setWeak] = useState<{ weak: boolean; min: number }>({ weak: false, min: 12 })
 
   useEffect(() => {
     fetch("/api/admin/session")
@@ -63,7 +63,6 @@ export default function AdminPage() {
       .then((d) => {
         setAuthed(Boolean(d.authed))
         setConfigured(Boolean(d.configured))
-        setWeak({ weak: Boolean(d.weakPassword), min: Number(d.minPasswordLength) || 12 })
       })
       .catch(() => setAuthed(false))
   }, [])
@@ -75,33 +74,18 @@ export default function AdminPage() {
       </Centered>
     )
   if (!authed) return <Login configured={configured} onAuthed={() => setAuthed(true)} />
-  return <Console weak={weak} />
+  return <Console />
 }
 
-// Shown once signed in, when ADMIN_PASSWORD is short enough that rate limiting is the only thing
-// holding the door. Deliberately not shown to anonymous visitors — telling them the password is
-// weak would be the single most useful hint an attacker could get.
-function WeakPasswordBanner({ min }: { min: number }) {
-  return (
-    <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-      <span className="font-semibold">ADMIN_PASSWORD is short.</span> Rate limiting caps guesses at
-      5 per address per 15 minutes, but a short password is still the weakest part of this setup.
-      Use at least {min} characters — ideally a generated passphrase. Rotating it also signs out
-      every existing session.
-    </div>
-  )
-}
-
-type Tab = "rankings" | "projections" | "news" | "settings"
+type Tab = "rankings" | "projections" | "articles" | "news" | "settings"
 
 // Authed admin console: a tab switcher across the editors, the news feed, and settings.
-function Console({ weak }: { weak: { weak: boolean; min: number } }) {
+function Console() {
   const [tab, setTab] = useState<Tab>("rankings")
   return (
     <Shell>
-      {weak.weak && <WeakPasswordBanner min={weak.min} />}
       <div className="mb-6 flex gap-1 border-b border-[#1F1F1F]">
-        {(["rankings", "projections", "news", "settings"] as Tab[]).map((t) => (
+        {(["rankings", "projections", "articles", "news", "settings"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -118,6 +102,8 @@ function Console({ weak }: { weak: { weak: boolean; min: number } }) {
         <Editor />
       ) : tab === "projections" ? (
         <ProjectionsEditor />
+      ) : tab === "articles" ? (
+        <AdminArticleManager />
       ) : tab === "news" ? (
         <NewsManager />
       ) : (
@@ -1383,7 +1369,7 @@ function NewsManager() {
       if (!res.ok || d.error) {
         setRefineMsg(d.error ? `Error: ${d.error}` : "Preview failed")
       } else if (!d.configured) {
-        setRefineMsg("GEMINI_API_KEY is not set on the server.")
+        setRefineMsg("GROQ_API_KEY is not set on the server.")
       } else {
         setPreview({ impacts: (d.adjustments ?? []) as PreviewImpact[], unmatched: (d.unmatched ?? []) as string[] })
         if ((d.adjustments ?? []).length === 0) setRefineMsg("No adjustments from pending news.")
@@ -1410,7 +1396,7 @@ function NewsManager() {
       if (!res.ok || d.error) {
         setRefineMsg(d.error ? `Error: ${d.error}` : "Refine failed")
       } else if (!d.configured) {
-        setRefineMsg("GEMINI_API_KEY is not set on the server.")
+        setRefineMsg("GROQ_API_KEY is not set on the server.")
       } else {
         const unmatched = d.unmatched?.length ? ` · ${d.unmatched.length} unmatched` : ""
         setRefineMsg(`Refined ${d.newsProcessed} item(s) → ${d.playersAdjusted} player(s) adjusted${unmatched}`)

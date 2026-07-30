@@ -136,7 +136,7 @@ New public route `/api/rankings?season=&week=&scoring=` — reads `player_rankin
 | 3c ✅ | `/api/rankings` read route + `useServedRankings` + Players-panel season cutover. **Done** — served board (keyed by scoring×QB-count) drives the preseason season view, with graceful fallback to the local `useSeasonOutlook` when the table is empty. RLS enabled (public SELECT, no anon writes). Verified live on the gng preseason league: board renders from `/api/rankings`, PPR/Std toggle re-fetches the right key + reorders, tiers render, no console errors. In-season season-long cutover (from live `player_projections`) is deferred with the weekly work. | 3a |
 | 3d ✅ | Admin auth + `/admin` page + `ranking_overrides` table + drag/drop editor, merged into `/api/rankings`. **Done** — password-cookie auth (`ADMIN_PASSWORD`), `@dnd-kit` drag-to-reorder editor, overrides composed into the public board (manual value re-sorts, manual tier wins). Verified: admin drag→save propagates to a real user's Players panel. | 3c |
 | 3e | `news_items` table + upload UI on admin page | 3d |
-| 3f | Gemini wiring + `refine-rankings` LangGraph + `agent_adjustments`, merged into `/api/rankings` | 3e, and your guideline doc |
+| 3f | Groq wiring + `refine-rankings` LangGraph + `agent_adjustments`, merged into `/api/rankings` | 3e, and your guideline doc |
 
 I'd do 3a–3c first regardless of which of Layer 2/3 you want sooner — everything downstream needs the centralized table to exist.
 

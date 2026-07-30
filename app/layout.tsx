@@ -20,22 +20,31 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       {
-        url: '/icon.svg',
+        url: '/icon.svg?v=3',
         type: 'image/svg+xml',
       },
     ],
-    apple: '/apple-icon.png',
+    apple: '/apple-icon.png?v=2',
   },
   openGraph: {
     title: 'Fantasync',
     description: 'NFL fantasy football platform powered by Sleeper',
     siteName: 'Fantasync',
     type: 'website',
+    images: [
+      {
+        url: '/social-preview.png?v=1',
+        width: 1200,
+        height: 630,
+        alt: 'Fantasync',
+      },
+    ],
   },
   twitter: {
     card: 'summary',
     title: 'Fantasync',
     description: 'NFL fantasy football platform powered by Sleeper',
+    images: ['/social-preview.png?v=1'],
   },
 }
 

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from "react"
 import { ArrowUpDown, ChevronDown, Info, Loader2 } from "lucide-react"
 import { useSync } from "@/lib/sync-context"
 import { PositionChip } from "@/components/player-cell"
+import { Toggle } from "@/components/panels/roster-parts"
 import {
   sleeper,
   detectScoring,
@@ -867,35 +868,3 @@ function stableHash(value: string): number {
   return Math.abs(hash)
 }
 
-function Toggle<T extends string>({
-  options,
-  value,
-  onChange,
-}: {
-  options: { key: T; label: string; disabled?: boolean; title?: string }[]
-  value: T
-  onChange: (v: T) => void
-}) {
-  return (
-    <div className="flex items-center bg-[#1A1A1A] rounded-lg p-1">
-      {options.map((o) => (
-        <button
-          key={o.key}
-          onClick={() => !o.disabled && onChange(o.key)}
-          disabled={o.disabled}
-          title={o.title}
-          className={cn(
-            "px-3 py-1 text-xs rounded-md transition-colors",
-            o.disabled
-              ? "cursor-not-allowed text-[#4A4A4A]"
-              : value === o.key
-                ? "bg-[#2A2A2A] text-white"
-                : "text-[#919191] hover:text-white",
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}

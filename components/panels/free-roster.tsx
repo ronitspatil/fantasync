@@ -9,10 +9,17 @@
 // here means the same thing it does there.
 
 import { useMemo, useState } from "react"
-import { Loader2, Minus, Plus, Search, Users } from "lucide-react"
+import { Loader2, Search, Users } from "lucide-react"
 import { useSync } from "@/lib/sync-context"
 import { PositionChip } from "@/components/player-cell"
-import { Card, GradeList, PositionRadar, RosterGroup, RosterPlayerCell } from "@/components/panels/roster-parts"
+import {
+  Card,
+  GradeList,
+  PositionRadar,
+  RosterGroup,
+  RosterPlayerCell,
+  Stepper,
+} from "@/components/panels/roster-parts"
 import { isFantasyRelevant } from "@/lib/availability"
 import { useServedRankings } from "@/lib/use-served-rankings"
 import { scoringKey } from "@/lib/engine/rankings"
@@ -377,9 +384,9 @@ function SettingsStep({
   const valid = starters > 0
 
   return (
-    // Fill the viewport so the footer bottoms out level with the sticky left nav rail
-    // (h-[calc(100vh-8rem)]) instead of leaving dead space under the cards.
-    <div className="flex flex-col gap-6 xl:h-[calc(100vh-8rem)]">
+    // Fill the viewport so the footer bottoms out cleanly instead of leaving dead space under the
+    // cards. 7rem is the main element's own vertical padding at xl (pt-20 + pb-8).
+    <div className="flex flex-col gap-6 xl:h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
         <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <Users className="h-5 w-5 text-[#a5f3fc]" />
@@ -508,36 +515,3 @@ function SettingsStep({
   )
 }
 
-function Stepper({
-  value,
-  max,
-  onChange,
-  label,
-}: {
-  value: number
-  max: number
-  onChange: (v: number) => void
-  label: string
-}) {
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        onClick={() => onChange(Math.max(0, value - 1))}
-        disabled={value <= 0}
-        className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1A1A1A] text-[#919191] transition-colors hover:text-white disabled:opacity-30"
-        aria-label={`Fewer ${label}`}
-      >
-        <Minus className="h-3.5 w-3.5" />
-      </button>
-      <span className="w-5 text-center text-sm font-semibold tabular-nums text-white">{value}</span>
-      <button
-        onClick={() => onChange(Math.min(max, value + 1))}
-        disabled={value >= max}
-        className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#1A1A1A] text-[#919191] transition-colors hover:text-white disabled:opacity-30"
-        aria-label={`More ${label}`}
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </div>
-  )
-}

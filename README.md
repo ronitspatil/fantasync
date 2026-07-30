@@ -35,6 +35,10 @@ pnpm dev                     # http://localhost:3000
 See [.env.example](.env.example) for the required variables. The same set must be
 configured in the Vercel project for the deploy to run.
 
+`GROQ_API_KEY` powers the LangGraph news-impact layer that adjusts rankings and tiers.
+`GROQ_REFINER_MODEL` optionally overrides its default `openai/gpt-oss-120b` model.
+`GEMINI_API_KEY` remains separate and is used by the Research article writer.
+
 ## League providers
 
 Fantasync syncs leagues from Sleeper, ESPN, and Yahoo. Each platform has an adapter under

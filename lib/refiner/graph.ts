@@ -1,7 +1,7 @@
 // Layer 2 AI news refiner as a LangGraph pipeline (Phase 3f, extended Phase 4).
 //
-// load_news → extract_impacts (Gemini) → match_players → write_adjustments.
-// Reads pending `news_items` for a given scope (season-long vs a specific week), asks Gemini for
+// load_news → extract_impacts (Groq) → match_players → write_adjustments.
+// Reads pending `news_items` for a given scope (season-long vs a specific week), asks Groq for
 // conservative per-player value impacts, matches the names to sleeper_ids, aggregates + clamps,
 // upserts `agent_adjustments`, and marks the consumed news 'processed'. Composed BETWEEN Layer 1
 // (base) and Layer 3 (overrides) in composeRankings, so an admin's manual edit always wins.
@@ -17,7 +17,7 @@ import { Annotation, END, START, StateGraph } from "@langchain/langgraph"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { normalizePlayerName } from "@/lib/sleeper"
 import { AGENT_DELTA_CLAMP } from "@/lib/engine/compose-rankings"
-import { geminiExtractImpacts, geminiConfigured, type PlayerImpact } from "@/lib/refiner/gemini"
+import { groqExtractImpacts, groqConfigured, type PlayerImpact } from "@/lib/refiner/groq"
 
 const SEASON_WEEK_SENTINEL = 0
 
@@ -93,10 +93,10 @@ const graph = new StateGraph(RefinerAnnotation)
       .map((n) => [n.title ? `## ${n.title}` : "", n.body, n.source ? `(source: ${n.source})` : ""].filter(Boolean).join("\n"))
       .join("\n\n---\n\n")
     try {
-      const impacts = await geminiExtractImpacts(combined)
+      const impacts = await groqExtractImpacts(combined)
       return { impacts }
     } catch (e) {
-      return { error: e instanceof Error ? e.message : "gemini failed" }
+      return { error: e instanceof Error ? e.message : "groq failed" }
     }
   })
   .addNode("match_players", async (state) => {
@@ -238,7 +238,7 @@ export async function runRefiner(season: number, opts: RefinerOptions = {}): Pro
   const scope: RefinerScope = opts.scope === "weekly" ? "weekly" : "season"
   const targetWeek = scope === "weekly" ? opts.week ?? 1 : SEASON_WEEK_SENTINEL
   const dryRun = Boolean(opts.dryRun)
-  const configured = geminiConfigured()
+  const configured = groqConfigured()
 
   const result = await graph.invoke({ season, scope, targetWeek, dryRun })
   return {

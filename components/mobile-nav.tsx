@@ -1,33 +1,86 @@
 "use client"
 
+import { useState } from "react"
+import { Menu, Unlink } from "lucide-react"
+import { FinbroMark, FinbroWordmark } from "@/components/finbro-logo"
 import { NAV } from "@/components/sidebar"
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { useSync } from "@/lib/sync-context"
 import { cn } from "@/lib/utils"
 
 export function MobileNav() {
-  const { activeTab, setActiveTab } = useSync()
+  const { activeTab, setActiveTab, disconnect } = useSync()
+  const [open, setOpen] = useState(false)
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-[#1F1F1F] bg-black/90 px-2 py-2 backdrop-blur-xl md:hidden">
-      <div className="grid grid-cols-5 gap-1">
-        {NAV.map(({ tab, label, icon: Icon }) => {
-          const active = activeTab === tab
-          return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>
+        <button
+          type="button"
+          aria-label="Open navigation"
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-[#2A2A2A] bg-[#0D0D0D] text-[#D0D0D0] transition-colors hover:border-[#3A3A3A] hover:text-white md:hidden"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      </SheetTrigger>
+
+      <SheetContent
+        side="left"
+        className="z-[80] w-[18rem] max-w-[calc(100vw-3rem)] gap-0 border-[#1F1F1F] bg-[#070707] p-0 text-white shadow-none md:hidden [&>button]:right-5 [&>button]:top-6 [&>button]:text-[#919191] [&>button]:hover:text-white"
+      >
+        <SheetHeader className="h-20 justify-center border-b border-[#1F1F1F] px-5 py-0">
+          <SheetTitle className="sr-only">Fantasync navigation</SheetTitle>
+          <div className="flex items-center gap-2.5">
+            <FinbroMark className="h-8 w-8 shrink-0" />
+            <FinbroWordmark className="text-2xl" />
+          </div>
+        </SheetHeader>
+
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
+          {NAV.map(({ tab, label, icon: Icon }) => {
+            const active = activeTab === tab
+            return (
+              <SheetClose asChild key={tab}>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "flex h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium transition-colors",
+                    active
+                      ? "bg-[#a5f3fc]/12 text-[#a5f3fc]"
+                      : "text-[#A0A0A0] hover:bg-white/[0.04] hover:text-[#E7E7E7]",
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span>{mobileLabel(label)}</span>
+                </button>
+              </SheetClose>
+            )
+          })}
+        </nav>
+
+        <div className="border-t border-[#1F1F1F] p-3">
+          <SheetClose asChild>
             <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={cn(
-                "flex h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-lg transition-colors",
-                active ? "bg-[#a5f3fc]/10 text-[#a5f3fc]" : "text-[#919191] hover:text-white",
-              )}
+              type="button"
+              onClick={disconnect}
+              className="flex h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-[#A0A0A0] transition-colors hover:bg-white/[0.04] hover:text-[#E7E7E7]"
             >
-              <Icon className="h-5 w-5 shrink-0" />
-              <span className="w-full truncate px-0.5 text-[9px] font-semibold tracking-wide">{mobileLabel(label)}</span>
+              <Unlink className="h-5 w-5 shrink-0" />
+              <span>UNSYNC</span>
             </button>
-          )
-        })}
-      </div>
-    </nav>
+          </SheetClose>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
 

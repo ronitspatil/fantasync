@@ -1,14 +1,17 @@
 "use client"
 
+import { useEffect, useRef } from "react"
 import { SyncProvider, useSync } from "@/lib/sync-context"
 import { Header } from "@/components/header"
-import { MobileNav } from "@/components/mobile-nav"
 import { Sidebar } from "@/components/sidebar"
+import { SiteFooter } from "@/components/site-footer"
 import { LeaguePanel } from "@/components/panels/league-panel"
 import { RosterPanel } from "@/components/panels/roster-panel"
 import { StartSitPanel } from "@/components/panels/start-sit-panel"
 import { TradePanel } from "@/components/panels/trade-panel"
 import { PlayersPanel } from "@/components/panels/players-panel"
+import { ResearchPanel } from "@/components/panels/research-panel"
+import { DraftPanel } from "@/components/panels/draft-panel"
 
 function ActivePanel() {
   const { activeTab } = useSync()
@@ -23,24 +26,49 @@ function ActivePanel() {
       return <TradePanel />
     case "players":
       return <PlayersPanel />
+    case "research":
+      return <ResearchPanel />
+    case "draft":
+      return <DraftPanel />
   }
 }
 
 export function AppShell() {
   return (
     <SyncProvider>
-      <div className="relative h-screen w-full bg-black text-white overflow-hidden">
-        <Header />
-        <div className="h-full overflow-y-auto no-scrollbar">
-          <main className="flex gap-4 p-4 pt-24 pb-24 md:gap-6 md:p-6 md:pt-24 md:pb-6 min-h-full">
-            <Sidebar />
-            <div className="flex-1 flex flex-col gap-6 min-w-0">
+      <ShellContent />
+    </SyncProvider>
+  )
+}
+
+function ShellContent() {
+  const { activeTab } = useSync()
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  }, [activeTab])
+
+  return (
+    <div className="relative h-screen w-full bg-black text-white overflow-hidden">
+      <Header />
+      {/* The rail is a sibling of the whole scrolling column — main *and* footer — so its right
+          border runs the full height of the page. Nesting the footer outside that column instead
+          would end the rail at the footer's top rule, and the two hairlines would meet in an L. */}
+      <div ref={scrollRef} className="flex h-full overflow-y-auto no-scrollbar">
+        <Sidebar />
+        <div className="flex min-w-0 flex-1 flex-col">
+          {/* Top padding clears the fixed header, which content scrolls under: 56px tall on
+              mobile, 68px from md up, plus a small gap. Re-assert it at md so the shorthand
+              md:p-6 can't reset it back to 24px. */}
+          <main className="flex min-w-0 flex-1 gap-4 p-4 pb-8 pt-[4.5rem] md:gap-6 md:p-6 md:pt-20">
+            <div className="flex min-w-0 flex-1 flex-col gap-6">
               <ActivePanel />
             </div>
           </main>
+          <SiteFooter />
         </div>
-        <MobileNav />
       </div>
-    </SyncProvider>
+    </div>
   )
 }

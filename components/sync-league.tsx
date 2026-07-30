@@ -301,7 +301,7 @@ export function SyncLeague() {
       ? "Syncing…"
       : "Sync League"
   const triggerClassName = cn(
-    "flex shrink-0 items-center gap-2 h-8 px-2.5 md:h-10 md:px-4 rounded-full text-sm font-medium transition-colors",
+    "flex shrink-0 items-center gap-2 h-8 px-2.5 md:h-9 md:px-3.5 rounded-full text-sm font-medium transition-colors",
     synced
       ? "bg-[#1A1A1A] text-white hover:bg-[#242424] border border-[#2A2A2A]"
       : "bg-[#a5f3fc] text-black hover:bg-[#7fe3f0]",

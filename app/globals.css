@@ -119,8 +119,19 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /*
+   * Dark-only app. Each shell paints bg-black on its own container, but html and body sit
+   * underneath and show through anywhere those don't reach: iOS overscroll rubber-banding, and
+   * the strip behind an in-app browser's chrome. Left on --background they are white (the .dark
+   * class that flips that token to a dark value is never applied to <html>), which is what shows
+   * as white bars when the site is opened inside X.
+   */
+  html,
   body {
-    @apply bg-background text-foreground;
+    background-color: #000000;
+  }
+  body {
+    @apply text-white;
   }
 
   /* Added custom selection colors */

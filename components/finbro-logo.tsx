@@ -16,8 +16,9 @@ export function FinbroLogo({ className }: { className?: string }) {
   )
 }
 
-// The wordmark on its own, sized by whatever it's dropped into — the desktop header (text-4xl) and
-// the mobile drawer (text-2xl) both use it. White type with a hard cyan shadow offset down-right.
+// The wordmark on its own, sized by whatever it's dropped into. Currently unused outside FinbroLogo:
+// the brand is now stated by the football mark alone in both chrome slots — the desktop nav rail and
+// the mobile drawer header. White type with a hard cyan shadow offset down-right.
 //
 // Two things here are load-bearing, and the treatment falls apart without either:
 //   · The shadow is cyan-600, not the brand's #a5f3fc. That light cyan sits at ~91% luminance

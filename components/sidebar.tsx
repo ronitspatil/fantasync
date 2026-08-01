@@ -19,7 +19,7 @@ export function Sidebar() {
   const { activeTab, setActiveTab, disconnect } = useSync()
 
   return (
-    <aside className="sticky top-0 z-[60] hidden h-screen w-24 shrink-0 flex-col items-center border-r border-[#1F1F1F] bg-[#070707] px-3 py-4 md:flex">
+    <aside className="sticky top-0 z-[60] hidden h-dvh w-24 shrink-0 flex-col items-center border-r border-[#1F1F1F] bg-[#070707] px-3 py-4 md:flex">
       <div className="mb-4 mt-3 h-14 w-14 overflow-hidden rounded-full bg-black ring-1 ring-[#a5f3fc]/20">
         <FinbroMark className="h-full w-full" />
       </div>

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Space_Grotesk } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
@@ -11,6 +11,16 @@ const spaceGrotesk = Space_Grotesk({ subsets: ["latin"] });
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ??
   (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined)
+
+// In-app browsers (X, Instagram) and iOS Safari tint their own chrome from theme-color. Without
+// it they default to light, which is what puts white bars above and below an all-black page.
+// colorScheme tells the UA the page is dark so it doesn't apply light-mode UI styling either.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  themeColor: '#000000',
+  colorScheme: 'dark',
+}
 
 export const metadata: Metadata = {
   ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Menu, Unlink } from "lucide-react"
-import { FinbroMark, FinbroWordmark } from "@/components/finbro-logo"
+import { FinbroMark } from "@/components/finbro-logo"
 import { NAV } from "@/components/sidebar"
 import {
   Sheet,
@@ -37,10 +37,7 @@ export function MobileNav() {
       >
         <SheetHeader className="h-20 justify-center border-b border-[#1F1F1F] px-5 py-0">
           <SheetTitle className="sr-only">Fantasync navigation</SheetTitle>
-          <div className="flex items-center gap-2.5">
-            <FinbroMark className="h-8 w-8 shrink-0" />
-            <FinbroWordmark className="text-2xl" />
-          </div>
+          <FinbroMark className="h-8 w-8 shrink-0" />
         </SheetHeader>
 
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">

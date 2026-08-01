@@ -49,8 +49,12 @@ function ShellContent() {
     scrollRef.current?.scrollTo({ top: 0, left: 0, behavior: "auto" })
   }, [activeTab])
 
+  // h-dvh, not h-screen: 100vh on iOS is the *large* viewport, measured as if the browser toolbars
+  // were retracted, so inside an in-app browser the shell is taller than the visible area and
+  // overflow-hidden clips its bottom behind the toolbar. dvh tracks what's actually visible, and
+  // can't jitter here because the outer box never scrolls, so the toolbars never move.
   return (
-    <div className="relative h-screen w-full bg-black text-white overflow-hidden">
+    <div className="relative h-dvh w-full bg-black text-white overflow-hidden">
       <Header />
       {/* The rail is a sibling of the whole scrolling column — main *and* footer — so its right
           border runs the full height of the page. Nesting the footer outside that column instead

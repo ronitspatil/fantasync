@@ -1,6 +1,5 @@
 "use client"
 
-import { FinbroWordmark } from "@/components/finbro-logo"
 import { MobileNav } from "@/components/mobile-nav"
 import { SyncLeague } from "@/components/sync-league"
 import { Unlink, User } from 'lucide-react'
@@ -24,12 +23,10 @@ export function Header() {
   return (
     <header className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between gap-3 px-4 py-3 bg-black/10 backdrop-blur-[120px] md:left-24 md:px-6 md:py-4">
       <div className="flex min-w-0 items-center gap-2.5">
+        {/* Mobile only: the hamburger owns this corner and the drawer carries the wordmark. On
+            desktop this side of the bar is left empty — the nav rail already shows the football
+            mark, and the bar stays 68px because the profile button (36px) sets its height. */}
         <MobileNav />
-        {/* Desktop only: on mobile the hamburger owns this corner and the drawer carries the
-            wordmark. The football mark isn't repeated here — the nav rail already shows it.
-            36px is the ceiling that keeps the bar at 68px: the wordmark is leading-none, so at
-            text-4xl it's exactly as tall as the controls beside it and adds no height. */}
-        <FinbroWordmark className="hidden text-4xl md:block" />
       </div>
       <div className="flex shrink-0 items-center gap-2 md:gap-3">
         <SyncLeague />

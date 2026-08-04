@@ -39,6 +39,7 @@ export function SyncLeague() {
     discoverLeagues,
     selectLeague,
     disconnect,
+    syncRequest,
   } = useSync()
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>("provider")
@@ -78,6 +79,13 @@ export function SyncLeague() {
   useEffect(() => {
     void refreshProviderStatus()
   }, [refreshProviderStatus])
+
+  // The nav rail and mobile drawer show a Sync action when nothing is synced; they bump this
+  // counter to open the dialog here. Skipped on mount, when the counter is still 0.
+  useEffect(() => {
+    if (!syncRequest) return
+    setOpen(true)
+  }, [syncRequest])
 
   // Coming back from Yahoo's consent screen: reopen the dialog straight into league selection.
   useEffect(() => {

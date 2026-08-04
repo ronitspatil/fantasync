@@ -24,7 +24,6 @@ import type { AdminRankingRow } from "@/app/api/admin/rankings/route"
 import type { AdminProjectionRow } from "@/app/api/admin/projections/route"
 import type { NewsItem } from "@/app/api/admin/news/route"
 import type { SleeperUsageResponse } from "@/app/api/admin/sleeper-usage/route"
-import { AdminArticleManager } from "@/components/admin-article-manager"
 import { cn } from "@/lib/utils"
 
 const SEASON = 2026
@@ -77,7 +76,7 @@ export default function AdminPage() {
   return <Console />
 }
 
-type Tab = "rankings" | "projections" | "articles" | "news" | "settings"
+type Tab = "rankings" | "projections" | "news" | "settings"
 
 // Authed admin console: a tab switcher across the editors, the news feed, and settings.
 function Console() {
@@ -85,7 +84,7 @@ function Console() {
   return (
     <Shell>
       <div className="mb-6 flex gap-1 border-b border-[#1F1F1F]">
-        {(["rankings", "projections", "articles", "news", "settings"] as Tab[]).map((t) => (
+        {(["rankings", "projections", "news", "settings"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -102,8 +101,6 @@ function Console() {
         <Editor />
       ) : tab === "projections" ? (
         <ProjectionsEditor />
-      ) : tab === "articles" ? (
-        <AdminArticleManager />
       ) : tab === "news" ? (
         <NewsManager />
       ) : (

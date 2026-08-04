@@ -10,8 +10,6 @@ import { RosterPanel } from "@/components/panels/roster-panel"
 import { StartSitPanel } from "@/components/panels/start-sit-panel"
 import { TradePanel } from "@/components/panels/trade-panel"
 import { PlayersPanel } from "@/components/panels/players-panel"
-import { ResearchPanel } from "@/components/panels/research-panel"
-import { DraftPanel } from "@/components/panels/draft-panel"
 
 function ActivePanel() {
   const { activeTab } = useSync()
@@ -26,10 +24,6 @@ function ActivePanel() {
       return <TradePanel />
     case "players":
       return <PlayersPanel />
-    case "research":
-      return <ResearchPanel />
-    case "draft":
-      return <DraftPanel />
   }
 }
 

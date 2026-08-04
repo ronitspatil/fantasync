@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Menu, Unlink } from "lucide-react"
+import { Link2, Menu, Unlink } from "lucide-react"
 import { FinbroMark } from "@/components/finbro-logo"
 import { NAV } from "@/components/sidebar"
 import {
@@ -16,8 +16,9 @@ import { useSync } from "@/lib/sync-context"
 import { cn } from "@/lib/utils"
 
 export function MobileNav() {
-  const { activeTab, setActiveTab, disconnect } = useSync()
+  const { activeTab, setActiveTab, status, disconnect, requestSync } = useSync()
   const [open, setOpen] = useState(false)
+  const synced = status === "synced"
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -68,11 +69,11 @@ export function MobileNav() {
           <SheetClose asChild>
             <button
               type="button"
-              onClick={disconnect}
+              onClick={synced ? disconnect : requestSync}
               className="flex h-12 w-full items-center gap-3 rounded-md px-3 text-left text-sm font-medium text-[#A0A0A0] transition-colors hover:bg-white/[0.04] hover:text-[#E7E7E7]"
             >
-              <Unlink className="h-5 w-5 shrink-0" />
-              <span>UNSYNC</span>
+              {synced ? <Unlink className="h-5 w-5 shrink-0" /> : <Link2 className="h-5 w-5 shrink-0" />}
+              <span>{synced ? "UNSYNC" : "SYNC"}</span>
             </button>
           </SheetClose>
         </div>

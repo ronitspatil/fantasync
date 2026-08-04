@@ -15,7 +15,7 @@ import {
 } from "@/lib/sleeper"
 import { formatLeagueId, parseLeagueId, type Provider } from "@/lib/providers/types"
 
-export type Tab = "league" | "roster" | "start-sit" | "trade" | "players" | "research" | "draft"
+export type Tab = "league" | "roster" | "start-sit" | "trade" | "players"
 export type SyncStatus = "unsynced" | "loading" | "synced" | "error"
 
 const STORAGE_KEY = "fantasync.sync"
@@ -59,6 +59,10 @@ interface SyncContextValue {
   // and is required for ESPN/Yahoo, which have no owner id to match a username against.
   selectLeague: (leagueId: string, rosterId?: number | null) => Promise<LeagueBundle>
   disconnect: () => void
+  // Bumped by requestSync() so the sync dialog (which lives in the header) can be opened from
+  // anywhere — the nav rail and mobile drawer both offer a Sync action when nothing is synced.
+  syncRequest: number
+  requestSync: () => void
 }
 
 const SyncContext = createContext<SyncContextValue | null>(null)
@@ -90,6 +94,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // async, so at first render this is the preseason default; live seasons keep Players too,
   // which is fine.)
   const [activeTab, setActiveTab] = useState<Tab>("players")
+  const [syncRequest, setSyncRequest] = useState(0)
 
   const league = bundle?.league ?? null
   // Use the selected league's season for league-specific panels. Without a synced league, fall
@@ -305,6 +310,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (typeof window !== "undefined") localStorage.removeItem(STORAGE_KEY)
   }, [])
 
+  const requestSync = useCallback(() => setSyncRequest((n) => n + 1), [])
+
   return (
     <SyncContext.Provider
       value={{
@@ -327,6 +334,8 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         discoverLeagues,
         selectLeague,
         disconnect,
+        syncRequest,
+        requestSync,
       }}
     >
       {children}

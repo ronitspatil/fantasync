@@ -130,7 +130,11 @@ function FreeTrade() {
   return (
     // The cards stretch to fill the viewport so "Trade value" bottoms out cleanly instead of
     // leaving dead space below. 7rem is the main element's own vertical padding at xl.
-    <div className="flex flex-col gap-6 xl:h-[calc(100vh-7rem)]">
+    //
+    // This is a floor, not a fixed height. Pinned to an exact viewport height, a short screen
+    // couldn't fit the header + verdict card + both sides, and the side lists — which carry
+    // xl:min-h-0 — collapsed to nothing and spilled their rows behind the verdict card.
+    <div className="flex flex-col gap-6 xl:min-h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
         <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <ArrowLeftRight className="h-5 w-5 text-[#a5f3fc]" />
@@ -164,7 +168,7 @@ function FreeTrade() {
               <span className="text-[#c9c9c9]">surplus gain</span> — a balanced swap reads as fair for both.
             </p>
           </div>
-          <div className="flex-1 rounded-xl bg-[#111] border border-[#1F1F1F] p-5 flex flex-col justify-center min-h-[220px]">
+          <div className="flex-1 rounded-xl bg-[#111] border border-[#1F1F1F] p-5 flex flex-col justify-center min-h-[340px]">
             {!evaluation ? (
               <p className="text-sm text-[#666] text-center">Add players to both sides to see the verdict.</p>
             ) : (
@@ -431,8 +435,10 @@ function TradeContent() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header + both sides + the verdict form one screen-height block, so "Trade value" bottoms
-          out at the fold. Suggested trades scroll in below it. */}
-      <div className="flex flex-col gap-6 xl:h-[calc(100vh-7rem)]">
+          out at the fold. Suggested trades scroll in below it. The height is a floor, not a fixed
+          size — pinned exactly, a short screen collapsed the side lists (xl:min-h-0) to nothing
+          and their rows spilled behind the verdict card. */}
+      <div className="flex flex-col gap-6 xl:min-h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
         <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <ArrowLeftRight className="h-5 w-5 text-[#a5f3fc]" />
@@ -516,7 +522,7 @@ function TradeContent() {
             </button>
           </div>
 
-          <div className="flex-1 rounded-xl bg-[#111] border border-[#1F1F1F] p-5 flex flex-col justify-center min-h-[220px]">
+          <div className="flex-1 rounded-xl bg-[#111] border border-[#1F1F1F] p-5 flex flex-col justify-center min-h-[340px]">
             {!analyzed || !evaluation ? (
               <p className="text-sm text-[#666] text-center">
                 Select players on both sides and run the analysis.
@@ -571,22 +577,47 @@ function TradeContent() {
 // a swap can be evenly matched and still leave both sides worse off, and the model requires both
 // surpluses to be non-negative. Lighting the band on position alone would contradict the text.
 const leanBands = (fairVerdict: boolean) => [
-  { to: 30, className: "bg-amber-400/45" },
-  { to: 44, className: "bg-amber-400/25" },
-  { to: 56, className: fairVerdict ? "bg-[#a5f3fc]/70" : "bg-[#3A3A3A]" },
-  { to: 70, className: "bg-green-400/25" },
-  { to: 100, className: "bg-green-400/45" },
+  { to: 30, color: "#fbbf24", opacity: 0.5 },
+  { to: 44, color: "#fbbf24", opacity: 0.28 },
+  { to: 56, color: fairVerdict ? "#a5f3fc" : "#3A3A3A", opacity: fairVerdict ? 0.85 : 1 },
+  { to: 70, color: "#4ade80", opacity: 0.28 },
+  { to: 100, color: "#4ade80", opacity: 0.5 },
 ]
+
+// Gauge geometry. `pct` (0..100) maps to `angle` (-90..90) so 0 sits at 9 o'clock, 50 at 12
+// o'clock and 100 at 3 o'clock — the same left/even/right layout the old linear track used.
+const GAUGE_CX = 100
+const GAUGE_CY = 98
+const GAUGE_R = 82
+const GAUGE_STROKE = 18
+
+const angleForPct = (pct: number) => -90 + pct * 1.8
+
+function polarToPoint(angleDeg: number, r: number) {
+  const rad = ((angleDeg - 90) * Math.PI) / 180
+  return { x: GAUGE_CX + r * Math.cos(rad), y: GAUGE_CY + r * Math.sin(rad) }
+}
+
+function describeArc(fromPct: number, toPct: number) {
+  const start = polarToPoint(angleForPct(fromPct), GAUGE_R)
+  const end = polarToPoint(angleForPct(toPct), GAUGE_R)
+  const largeArcFlag = toPct - fromPct > 55.6 ? 1 : 0
+  return `M ${start.x} ${start.y} A ${GAUGE_R} ${GAUGE_R} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`
+}
 
 function VerdictView({ evaluation }: { evaluation: TradeEval }) {
   const { verdict, aSurplus, bSurplus, fairness, lean } = evaluation
   const fair = verdict === "Fair"
   const favorsYou = verdict === "Favors you" || verdict === "Lopsided — you win"
   const tone = fair ? "text-[#a5f3fc]" : favorsYou ? "text-green-400" : "text-amber-400"
-  const needleTone = fair ? "bg-[#a5f3fc]" : favorsYou ? "bg-green-400" : "bg-amber-400"
+  const needleColor = fair ? "#a5f3fc" : favorsYou ? "#4ade80" : "#fbbf24"
   const bands = leanBands(fair)
-  // Needle position. Inset a hair so it can't hang off either end of the track.
+  // Needle position. Inset a hair so it can't hang off either end of the dial.
   const pct = Math.max(2, Math.min(98, 50 + lean * 50))
+  const angle = angleForPct(pct)
+  const needleLength = GAUGE_R - GAUGE_STROKE / 2 - 5
+  const evenTickOuter = polarToPoint(0, GAUGE_R + GAUGE_STROKE / 2 + 3)
+  const evenTickInner = polarToPoint(0, GAUGE_R - GAUGE_STROKE / 2 - 3)
 
   return (
     <div className="flex w-full flex-col">
@@ -598,36 +629,52 @@ function VerdictView({ evaluation }: { evaluation: TradeEval }) {
         </div>
       </div>
 
-      <div className="mt-5">
-        <div className="relative h-9">
-          {/* Band track: amber on their side, cyan through the fair zone, green on yours. */}
-          <div className="absolute inset-x-0 top-3 flex h-3 overflow-hidden rounded-full">
-            {bands.map((band, i) => (
-              <div
-                key={band.to}
-                className={band.className}
-                style={{ width: `${band.to - (bands[i - 1]?.to ?? 0)}%` }}
-              />
-            ))}
-          </div>
-          {/* Dead-even reference line. */}
-          <div className="absolute left-1/2 top-1.5 h-6 w-px -translate-x-1/2 bg-[#0D0D0D]/80" />
-          {/* The needle. */}
-          <div
-            className="absolute top-0 h-9 -translate-x-1/2 transition-[left] duration-300 ease-out"
-            style={{ left: `${pct}%` }}
-          >
-            <div className={cn("mx-auto h-9 w-1 rounded-full", needleTone)} />
-            <div
-              className={cn(
-                "absolute left-1/2 top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full ring-4 ring-[#111]",
-                needleTone,
-              )}
+      <div className="mt-3">
+        <svg viewBox="0 0 200 112" className="mx-auto w-full max-w-[280px]">
+          {bands.map((band, i) => (
+            <path
+              key={band.to}
+              d={describeArc(bands[i - 1]?.to ?? 0, band.to)}
+              stroke={band.color}
+              strokeOpacity={band.opacity}
+              strokeWidth={GAUGE_STROKE}
+              strokeLinecap="butt"
+              fill="none"
             />
-          </div>
-        </div>
+          ))}
+          {/* Dead-even reference tick. */}
+          <line
+            x1={evenTickInner.x}
+            y1={evenTickInner.y}
+            x2={evenTickOuter.x}
+            y2={evenTickOuter.y}
+            stroke="#0D0D0D"
+            strokeOpacity={0.8}
+            strokeWidth={2}
+          />
+          {/* The hand. Drawn pointing straight up, then rotated to the needle angle so the turn
+              itself is a CSS transform and animates smoothly between evaluations. */}
+          <g
+            style={{
+              transform: `rotate(${angle}deg)`,
+              transformOrigin: `${GAUGE_CX}px ${GAUGE_CY}px`,
+              transition: "transform 300ms ease-out",
+            }}
+          >
+            <line
+              x1={GAUGE_CX}
+              y1={GAUGE_CY}
+              x2={GAUGE_CX}
+              y2={GAUGE_CY - needleLength}
+              stroke={needleColor}
+              strokeWidth={4}
+              strokeLinecap="round"
+            />
+          </g>
+          <circle cx={GAUGE_CX} cy={GAUGE_CY} r={7} fill={needleColor} stroke="#111" strokeWidth={4} />
+        </svg>
 
-        <div className="mt-2 flex justify-between text-[10px] uppercase tracking-wide text-[#666]">
+        <div className="mx-auto -mt-1 flex max-w-[280px] justify-between text-[10px] uppercase tracking-wide text-[#666]">
           <span>Favors them</span>
           <span>Even</span>
           <span>Favors you</span>

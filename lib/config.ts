@@ -2,6 +2,7 @@
 // just the season-live override, but the key/value shape leaves room for more toggles later.
 import { supabaseRead } from "@/lib/supabase/read"
 import { supabaseAdmin } from "@/lib/supabase/admin"
+import { DEFAULT_VETO_POLICY, normalizePolicy, type VetoPolicy } from "@/lib/engine/trade-veto"
 
 // "auto"     → use the automatic isSeasonLive(league) detection (default, current behavior)
 // "live"     → force the whole app into live-season mode
@@ -68,5 +69,38 @@ export async function setDynastyEnabled(value: boolean): Promise<void> {
   const { error } = await supabaseAdmin()
     .from("app_config")
     .upsert({ key: DYNASTY_ENABLED_KEY, value, updated_at: new Date().toISOString() }, { onConflict: "key" })
+  if (error) throw new Error(error.message)
+}
+
+// Thresholds the commissioner's veto evaluator judges a trade against. Stored as a jsonb object
+// so the two thresholds and the flag move together — a half-applied policy would silently change
+// what the tool calls vetoable.
+const VETO_POLICY_KEY = "trade_veto_policy"
+
+// Read the veto policy. Normalized on the way out rather than trusted: this row is hand-editable
+// in the database, and an incoherent pair would otherwise make every trade read as vetoable.
+export async function getVetoPolicy(): Promise<VetoPolicy> {
+  try {
+    const { data, error } = await supabaseRead()
+      .from("app_config")
+      .select("value")
+      .eq("key", VETO_POLICY_KEY)
+      .maybeSingle()
+    if (error || data?.value == null) return DEFAULT_VETO_POLICY
+    return normalizePolicy(data.value as Partial<VetoPolicy>)
+  } catch {
+    return DEFAULT_VETO_POLICY
+  }
+}
+
+// Persist the veto policy (admin/service-role only). Normalized before the write so a repaired
+// policy is what actually lands, not just what this process happens to read back.
+export async function setVetoPolicy(value: VetoPolicy): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .from("app_config")
+    .upsert(
+      { key: VETO_POLICY_KEY, value: normalizePolicy(value), updated_at: new Date().toISOString() },
+      { onConflict: "key" },
+    )
   if (error) throw new Error(error.message)
 }

@@ -10,13 +10,16 @@ export function SiteFooter() {
   return (
     <footer className="border-t border-[#1F1F1F] px-4 py-6 md:px-6">
       <div className="flex items-center justify-between gap-2 whitespace-nowrap text-[10px] text-[#666] sm:gap-4 sm:text-xs">
+        {/* Icon-only, so the accessible name has to come from aria-label — the glyph itself is
+            decorative and would otherwise read out as the letter "X" alone. */}
         <a
-          href="https://x.com/fantasynchq"
+          href="https://x.com/fantasyncron"
           target="_blank"
           rel="noopener noreferrer"
-          className="font-medium text-[#919191] underline-offset-4 transition-colors hover:text-[#a5f3fc] hover:underline"
+          aria-label="Fantasync on X"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#2A2A2A] bg-[#0D0D0D] text-sm font-bold leading-none text-[#919191] transition-colors hover:border-[#a5f3fc]/40 hover:text-[#a5f3fc]"
         >
-          FantasyncHQ
+          <span aria-hidden>X</span>
         </a>
 
         <nav className="flex items-center gap-2 sm:gap-4">

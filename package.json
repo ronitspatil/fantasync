@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "calibrate": "tsx scripts/calibrate-vorp.ts",
-    "calibrate:adp": "tsx scripts/calibrate-adp.ts"
+    "calibrate:adp": "tsx scripts/calibrate-adp.ts",
+    "fit:taste": "tsx scripts/fit-taste.ts",
+    "preview:rankings": "tsx scripts/preview-rankings.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

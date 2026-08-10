@@ -58,10 +58,31 @@ export function shrinkWeight(opportunities: number, games: number, position: str
   return Math.min(bySample, byGames)
 }
 
-// Shrink a z-score toward the position mean (zero) by that weight.
-export function shrinkZ(z: number, opportunities: number, games: number, position: string, component: Component): number {
-  if (!Number.isFinite(z)) return 0
-  return z * shrinkWeight(opportunities, games, position, component)
+// Shrink a z-score toward `prior` by that weight. The prior defaults to zero — the position mean,
+// which is the right target when we know nothing else about the player.
+//
+// It is the WRONG target whenever we do know something else, and for volume we almost always do.
+// A receiver who played two games has a thin usage sample, but his snap share, his depth chart
+// position and the projection written for him all say he is a starter. Shrinking his volume read
+// to "average receiver" throws that away and prices him as the thing nobody thinks he is: the
+// player who both missed the season AND is unremarkable. That double-count is what buried the
+// short-sample starters on the 2026 board — the exact group the admin then had to lift by hand.
+//
+// Shrinking toward a role prior keeps the same discipline (a small sample still can't push a
+// player far from what we independently expect) while making the fallback a defensible estimate
+// instead of a shrug.
+export function shrinkZ(
+  z: number,
+  opportunities: number,
+  games: number,
+  position: string,
+  component: Component,
+  prior = 0,
+): number {
+  if (!Number.isFinite(z)) return Number.isFinite(prior) ? prior : 0
+  const w = shrinkWeight(opportunities, games, position, component)
+  const p = Number.isFinite(prior) ? prior : 0
+  return z * w + p * (1 - w)
 }
 
 // Mean and standard deviation defining a position's scale.

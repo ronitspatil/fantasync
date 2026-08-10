@@ -8,28 +8,29 @@ import Link from "next/link"
 // starts to the right of the nav rail, and the legal pages have no rail to clear.
 export function SiteFooter() {
   return (
-    <footer className="border-t border-[#1F1F1F] px-4 py-6 md:px-6">
-      <div className="flex items-center justify-between gap-2 whitespace-nowrap text-[10px] text-[#666] sm:gap-4 sm:text-xs">
+    <footer className="border-t border-[#161616] px-4 py-3 md:px-6">
+      <div className="flex items-center justify-between gap-2 whitespace-nowrap text-[10px] text-[#4F4F4F] sm:gap-4">
         {/* Icon-only, so the accessible name has to come from aria-label — the glyph itself is
-            decorative and would otherwise read out as the letter "X" alone. */}
+            decorative and would otherwise read out as the letter "X" alone. Unboxed: a bordered
+            chip read as a button and pulled more attention than a footer link should. */}
         <a
           href="https://x.com/fantasyncron"
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Fantasync on X"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#2A2A2A] bg-[#0D0D0D] text-sm font-bold leading-none text-[#919191] transition-colors hover:border-[#a5f3fc]/40 hover:text-[#a5f3fc]"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded font-bold leading-none transition-colors hover:text-[#919191]"
         >
           <span aria-hidden>X</span>
         </a>
 
         <nav className="flex items-center gap-2 sm:gap-4">
-          <Link href="/privacy" className="transition-colors hover:text-[#E7E7E7]">
+          <Link href="/privacy" className="transition-colors hover:text-[#919191]">
             Privacy Policy
           </Link>
-          <span aria-hidden className="text-[#2A2A2A]">
+          <span aria-hidden className="text-[#242424]">
             •
           </span>
-          <Link href="/terms" className="transition-colors hover:text-[#E7E7E7]">
+          <Link href="/terms" className="transition-colors hover:text-[#919191]">
             Terms of Service
           </Link>
         </nav>

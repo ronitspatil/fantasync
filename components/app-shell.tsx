@@ -58,8 +58,19 @@ function ShellContent() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* Top padding clears the fixed header, which content scrolls under: 56px tall on
               mobile, 68px from md up, plus a small gap. Re-assert it at md so the shorthand
-              md:p-6 can't reset it back to 24px. */}
-          <main className="flex min-w-0 flex-1 gap-4 p-4 pb-8 pt-[4.5rem] md:gap-6 md:p-6 md:pt-20">
+              md:p-6 can't reset it back to 24px.
+
+              min-h-dvh (matching the shell's own height) makes main fill the viewport on its own,
+              which pushes the footer entirely below the fold on every tab — including short ones
+              where flex-1 alone would leave it sitting in view. It's chrome; you reach it by
+              scrolling to the end, you don't get it for free.
+
+              shrink-0 instead of flex-1, and it's load-bearing: an explicit min-height replaces the
+              automatic min-height that normally stops a flex item from shrinking below its content,
+              so without it main gets squeezed back to the column's 720px and a long list (Players)
+              overflows it instead of growing the scroll height. Height is content here, floored at
+              one viewport. */}
+          <main className="flex min-h-dvh min-w-0 shrink-0 gap-4 p-4 pb-8 pt-[4.5rem] md:gap-6 md:p-6 md:pt-20">
             <div className="flex min-w-0 flex-1 flex-col gap-6">
               <ActivePanel />
             </div>

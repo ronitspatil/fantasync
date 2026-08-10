@@ -20,6 +20,20 @@ import { assignTiers } from "@/lib/engine/tiers"
 import { getFactorMap, factorLineMult, playerAdot } from "@/lib/engine/factors/store"
 import { buildSeasonSos } from "@/lib/engine/factors/schedule"
 import { buildTeamSituation } from "@/lib/engine/factors/situation"
+import { getPriorMap } from "@/lib/engine/priors-store"
+import { buildOpinion, getDraftCapitalMap } from "@/lib/engine/factors/opinion-build"
+import { DEFAULT_OPINION_COEFFICIENTS } from "@/lib/engine/factors/opinion"
+import { getOpinionCoefficients } from "@/lib/config"
+import { applyResolutionFloor, resolutionTable } from "@/lib/engine/resolution"
+import { calibrationReport } from "@/lib/engine/calibration-store"
+import {
+  checkBoard,
+  checkInputs,
+  fingerprint,
+  report,
+  type HealthCheck,
+  type HealthReport,
+} from "@/lib/engine/health"
 import type { SeasonProjection } from "@/app/api/sleeper/season-projections/route"
 import type { SlimPlayer } from "@/lib/sleeper"
 
@@ -33,6 +47,7 @@ interface StoredRanking {
 export interface ComputeRankingsResult {
   season: number
   formats: Array<{ scoring_key: string; players: number; tiers: number }>
+  health?: { ok: boolean; failures: HealthCheck[] }
 }
 
 // Orchestrate a full season-ranking recompute for every default format.
@@ -47,17 +62,21 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
 
   const playerMeta = (id: string): BoardPlayerMeta | undefined => {
     const p = players[id]
-    return p ? { position: p.position ?? "", name: p.name, age: p.age } : undefined
+    return p ? { position: p.position ?? "", name: p.name, age: p.age, team: p.team ?? null } : undefined
   }
 
   // Season factor accessor: profile prior (opportunity/efficiency/regression) × rest-of-season
   // SoS, resolved here where the team lookup lives. Neutral for players/positions not covered.
-  const [factors, seasonSos, teamSituation] = await Promise.all([
+  const [factors, seasonSos, teamSituation, priors, draftCapital, opinionCoefficients] = await Promise.all([
     getFactorMap(season).catch(() => new Map()),
     buildSeasonSos(season),
     // Situation is measured from the completed prior season but resolved against a player's
     // CURRENT team, so a free agent who signs somewhere new picks up his new line right away.
     buildTeamSituation(season - 1),
+    // Hand opinions, in points space, applied to every format this run materializes.
+    getPriorMap(season).catch(() => new Map<string, number>()),
+    getDraftCapitalMap().catch(() => new Map()),
+    getOpinionCoefficients().catch(() => DEFAULT_OPINION_COEFFICIENTS),
   ])
   // Three deliberately separate terms:
   //   player    — component-aware when a projected line is available (volume, efficiency and TD
@@ -81,6 +100,17 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
     )
   }
 
+  // How finely the projection can actually separate players, per position: measured from the
+  // logged projected-vs-actual pairs once there are enough of them, seeded defaults until then
+  // (which is the whole preseason, when `projection_log` is empty by construction).
+  const resolution = resolutionTable(
+    await calibrationReport(season)
+      .then((r) =>
+        Object.fromEntries(Object.entries(r.byPosition).map(([pos, a]) => [pos, { mae: a.mae, n: a.n }])),
+      )
+      .catch(() => ({})),
+  )
+
   // Season-long value is not tied to a played-games count in the preseason (no games yet), so
   // the smoothing taper sees gamesPlayed 0 (fully responsive) — correct for an outlook that
   // only updates as projections/market move. Once live, pass the real games-played here.
@@ -88,6 +118,24 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
 
   const results: ComputeRankingsResult["formats"] = []
   const rows: RankingRow[] = []
+
+  // Invariants on the INPUTS, checked before a single board is built. Every one of these describes
+  // a failure that produces a plausible board rather than an error (lib/engine/health).
+  const fpRanksByFlavor: Record<string, number> = {}
+  const fpFingerprintByFlavor: Record<string, string> = {}
+  for (const flavor of ["ppr", "half", "std"] as Scoring[]) {
+    fpRanksByFlavor[flavor] = loadFpRanks(flavor).size
+    fpFingerprintByFlavor[flavor] = fpFingerprintFor(flavor)
+  }
+  const checks: HealthCheck[] = checkInputs({
+    fpRanksByFlavor,
+    fpFingerprintByFlavor,
+    factorRows: factors.size,
+    priorRows: priors.size,
+    draftCapitalRows: draftCapital.size,
+    projectionRows: Object.keys(projections).length,
+    playerRows: Object.keys(players).length,
+  })
 
   for (const fmt of DEFAULT_FORMATS) {
     const board = buildSeasonBoard({
@@ -101,6 +149,9 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
       totalRosters: fmt.totalRosters,
       fpRankByName: loadFpRanks(fmt.scoringType as Scoring),
       factorMult: seasonFactorMult,
+      priors,
+      opinion: (pool) =>
+        buildOpinion(pool, factors, teamSituation, draftCapital, season, opinionCoefficients).mults,
     })
     if (!board.available) {
       results.push({ scoring_key: fmt.scoringKey, players: 0, tiers: 0 })
@@ -110,13 +161,26 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
     // Prior stored values for this exact (season, week, format) — the smoothing anchor.
     const prior = await loadPriorValues(season, fmt.scoringKey)
 
+    // Stop the board asserting precision the projection doesn't have: converge players whose
+    // projected totals sit inside the position's own error bar. Before smoothing, so the stored
+    // value — the one every surface reads and the one the admin edits against — is the honest one.
+    const resolved = applyResolutionFloor(
+      board.entries.map((e) => ({
+        id: e.id,
+        position: e.position,
+        value: e.value,
+        points: e.seasonPoints,
+      })),
+      resolution,
+    )
+
     // Smooth each player's fresh adjustedVorp against its prior stored value, then re-rank and
     // tier on the SMOOTHED values so the persisted board is the stabilized one.
     const smoothed = board.entries.map((e) => ({
       ...e,
       rawValue: e.value,
       value: smoothSeasonValue({
-        newValue: e.value,
+        newValue: resolved.get(e.id) ?? e.value,
         previousValue: prior.get(e.id) ?? null,
         gamesPlayed,
       }),
@@ -135,6 +199,28 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
     const tierCount = new Set(
       smoothed.map((e) => `${e.position}:${tierMaps.get(e.position)?.get(e.id) ?? 1}`),
     ).size
+
+    // Invariants on the OUTPUT, per format.
+    const fpRanks = loadFpRanks(fmt.scoringType as Scoring)
+    const byPosition: Record<string, number> = {}
+    for (const e of smoothed) byPosition[e.position] = (byPosition[e.position] ?? 0) + 1
+    checks.push(
+      ...checkBoard({
+        scoringKey: fmt.scoringKey,
+        size: smoothed.length,
+        byPosition,
+        topValue: smoothed[0]?.value ?? 0,
+        nonFiniteValues: smoothed.filter((e) => !Number.isFinite(e.value)).length,
+        topFiftyWithMarketRank: smoothed
+          .slice(0, 50)
+          .filter((e) => {
+            const name = playerMeta(e.id)?.name
+            return Boolean(name && fpRanks.has(normalizePlayerName(name)))
+          }).length,
+        priorsRequested: priors.size,
+        priorsApplied: [...priors.keys()].filter((id) => board.hasValue(id)).length,
+      }),
+    )
 
     const posCounter = new Map<string, number>()
     const computedAt = new Date().toISOString()
@@ -161,8 +247,28 @@ export async function computeSeasonRankings(origin: string, season: number): Pro
     results.push({ scoring_key: fmt.scoringKey, players: smoothed.length, tiers: tierCount })
   }
 
+  // Publish only if the invariants hold.
+  //
+  // A stale board is a visible problem — the admin console shows when it last ran, and users see
+  // numbers that don't move. A board silently built on the wrong market file is invisible, and
+  // stays wrong until somebody happens to notice. Refusing to publish converts the second kind of
+  // failure into the first, which is the entire point of this gate.
+  const health = report(checks)
+  await recordHealth(season, "compute-rankings", health)
+  if (!health.ok) {
+    const reasons = health.failures
+      .filter((f) => f.severity === "critical")
+      .map((f) => f.detail)
+      .join("; ")
+    throw new Error(`board not published — failed invariants: ${reasons}`)
+  }
+
   await upsertRankings(rows)
-  return { season, formats: results }
+  return {
+    season,
+    formats: results,
+    health: { ok: health.ok, failures: health.failures },
+  }
 }
 
 interface RankingRow {
@@ -181,18 +287,47 @@ interface RankingRow {
   computed_at: string
 }
 
+// Paged, because PostgREST caps a select at 1000 rows and this board is already ~640 per format.
+// A silently truncated read here would drop the smoothing anchor for everyone past the cap — they
+// would look like first-time players and take the fresh value whole, so the deepest part of the
+// board would jump around while the top stayed stable.
+const PAGE = 1000
+
 async function loadPriorValues(season: number, scoringKey: string): Promise<Map<string, number>> {
   const sb = supabaseAdmin()
-  const { data, error } = await sb
-    .from("player_rankings")
-    .select("sleeper_id,value")
-    .eq("season", season)
-    .eq("week", SEASON_WEEK_SENTINEL)
-    .eq("scoring_key", scoringKey)
-  if (error) throw new Error(`load prior rankings: ${error.message}`)
   const map = new Map<string, number>()
-  for (const r of (data ?? []) as StoredRanking[]) map.set(r.sleeper_id, Number(r.value))
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await sb
+      .from("player_rankings")
+      .select("sleeper_id,value")
+      .eq("season", season)
+      .eq("week", SEASON_WEEK_SENTINEL)
+      .eq("scoring_key", scoringKey)
+      .order("sleeper_id", { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`load prior rankings: ${error.message}`)
+    if (!data || data.length === 0) break
+    for (const r of data as StoredRanking[]) map.set(r.sleeper_id, Number(r.value))
+    if (data.length < PAGE) break
+  }
   return map
+}
+
+// Record the run's verdict, pass or fail. The failing runs are the ones worth having: without a
+// row, a refused publish is indistinguishable from a cron that never fired.
+async function recordHealth(season: number, job: string, health: HealthReport): Promise<void> {
+  try {
+    await supabaseAdmin().from("engine_health").insert({
+      season,
+      job,
+      ok: health.ok,
+      checks: health.checks,
+      failures: health.failures,
+    })
+  } catch {
+    // Recording health must never be the thing that breaks a run. This is one of the few places a
+    // swallowed error is right: the verdict is still returned to the caller and thrown on.
+  }
 }
 
 async function upsertRankings(rows: RankingRow[]): Promise<void> {
@@ -209,16 +344,43 @@ async function upsertRankings(rows: RankingRow[]): Promise<void> {
 
 // FantasyPros ECR by normalized name, read from the static CSVs (same files the client hook
 // fetches). Module-cached per flavor for the process lifetime.
+//
+// Exported because anything that wants to reproduce this board (scripts/preview-rankings) has to
+// read the market source the same way. A second copy of a CSV parser is a second board.
+// One STATIC `new URL(..., import.meta.url)` per flavor. This looks like something a loop should
+// do, and it can't.
+//
+// The bundler resolves `new URL(literal, import.meta.url)` at build time and emits the file as a
+// tracked asset. Given a template literal it cannot: it collapses every flavor onto a single
+// asset. The symptom was silent and expensive — the PPR and STD boards were both market-blended
+// against the HALF-PPR ECR file, and against a stale snapshot of it (769 rows where the file on
+// disk has 490), because the bundled asset was captured at an earlier build and never refreshed.
+// Nothing failed; the boards were just quietly ranked against the wrong market.
+//
+// Keep these literal. A refactor that "cleans up the duplication" reintroduces the bug.
+const FP_FILES: Record<Scoring, () => URL> = {
+  ppr: () => new URL("../../public/data/fantasypros-2026-ppr.csv", import.meta.url),
+  half: () => new URL("../../public/data/fantasypros-2026-half.csv", import.meta.url),
+  std: () => new URL("../../public/data/fantasypros-2026-std.csv", import.meta.url),
+}
+
 const fpCache = new Map<Scoring, Map<string, number>>()
-function loadFpRanks(scoringType: Scoring): Map<string, number> {
+// Content fingerprint per flavor, so the health check can assert the three flavors really are
+// three different files (lib/engine/health.checkMarketSources).
+const fpFingerprints = new Map<Scoring, string>()
+export function fpFingerprintFor(scoringType: Scoring): string {
+  return fpFingerprints.get(scoringType) ?? ""
+}
+
+export function loadFpRanks(scoringType: Scoring): Map<string, number> {
   const cached = fpCache.get(scoringType)
   if (cached) return cached
   const map = new Map<string, number>()
   try {
-    const text = readFileSync(
-      new URL(`../../public/data/fantasypros-2026-${scoringType}.csv`, import.meta.url),
-      "utf8",
-    )
+    const file = FP_FILES[scoringType]
+    if (!file) throw new Error(`no FantasyPros file for scoring flavor "${scoringType}"`)
+    const text = readFileSync(file(), "utf8")
+    fpFingerprints.set(scoringType, fingerprint(text))
     // Minimal CSV parse: header row then RK,PLAYER NAME,POS,... We only need RK + PLAYER NAME.
     const lines = text.split(/\r?\n/).filter((l) => l.trim().length > 0)
     const header = splitCsv(lines[0])

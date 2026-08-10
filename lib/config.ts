@@ -3,6 +3,11 @@
 import { supabaseRead } from "@/lib/supabase/read"
 import { supabaseAdmin } from "@/lib/supabase/admin"
 import { DEFAULT_VETO_POLICY, normalizePolicy, type VetoPolicy } from "@/lib/engine/trade-veto"
+import {
+  DEFAULT_OPINION_COEFFICIENTS,
+  normalizeOpinionCoefficients,
+  type OpinionCoefficients,
+} from "@/lib/engine/factors/opinion"
 
 // "auto"     → use the automatic isSeasonLive(league) detection (default, current behavior)
 // "live"     → force the whole app into live-season mode
@@ -100,6 +105,39 @@ export async function setVetoPolicy(value: VetoPolicy): Promise<void> {
     .from("app_config")
     .upsert(
       { key: VETO_POLICY_KEY, value: normalizePolicy(value), updated_at: new Date().toISOString() },
+      { onConflict: "key" },
+    )
+  if (error) throw new Error(error.message)
+}
+
+// Coefficients for the opinion band (lib/engine/factors/opinion), fitted against the admin's own
+// board by scripts/fit-taste.ts. Config rather than code because refitting is a data operation —
+// a new fit should be able to take effect on the next recompute without a deploy.
+const OPINION_COEFFICIENTS_KEY = "opinion_coefficients"
+
+export async function getOpinionCoefficients(): Promise<OpinionCoefficients> {
+  try {
+    const { data, error } = await supabaseRead()
+      .from("app_config")
+      .select("value")
+      .eq("key", OPINION_COEFFICIENTS_KEY)
+      .maybeSingle()
+    if (error || data?.value == null) return DEFAULT_OPINION_COEFFICIENTS
+    return normalizeOpinionCoefficients(data.value as Partial<OpinionCoefficients>)
+  } catch {
+    return DEFAULT_OPINION_COEFFICIENTS
+  }
+}
+
+export async function setOpinionCoefficients(value: Partial<OpinionCoefficients>): Promise<void> {
+  const { error } = await supabaseAdmin()
+    .from("app_config")
+    .upsert(
+      {
+        key: OPINION_COEFFICIENTS_KEY,
+        value: normalizeOpinionCoefficients(value),
+        updated_at: new Date().toISOString(),
+      },
       { onConflict: "key" },
     )
   if (error) throw new Error(error.message)

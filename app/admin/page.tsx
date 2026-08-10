@@ -16,7 +16,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2, Activity, Layers } from "lucide-react"
+import { GripVertical, RotateCcw, Save, LogOut, Plus, X, Upload, Trash2, Sparkles, Undo2, Power, Play, Loader2, Activity, Layers, Pencil } from "lucide-react"
 import { valueForSlot, assignOverallTiers } from "@/lib/engine/compose-rankings"
 import { STAGES, stepsForStage } from "@/lib/engine/pipeline"
 import { computeValueScoreScale, valueToScore, scoreToValue, type ValueScoreScale } from "@/lib/engine/value-score"
@@ -24,6 +24,8 @@ import type { AdminRankingRow } from "@/app/api/admin/rankings/route"
 import type { AdminProjectionRow } from "@/app/api/admin/projections/route"
 import type { NewsItem } from "@/app/api/admin/news/route"
 import type { SleeperUsageResponse } from "@/app/api/admin/sleeper-usage/route"
+import type { TasteFitResponse } from "@/app/api/admin/taste-fit/route"
+import type { EngineHealthResponse } from "@/app/api/admin/engine-health/route"
 import { AdminVetoEvaluator } from "@/components/admin-veto-evaluator"
 import { cn } from "@/lib/utils"
 
@@ -77,7 +79,7 @@ export default function AdminPage() {
   return <Console />
 }
 
-type Tab = "rankings" | "projections" | "news" | "veto" | "settings"
+type Tab = "rankings" | "projections" | "taste" | "news" | "veto" | "settings"
 
 // Authed admin console: a tab switcher across the editors, the news feed, the trade-veto
 // evaluator, and settings.
@@ -86,7 +88,7 @@ function Console() {
   return (
     <Shell>
       <div className="mb-6 flex gap-1 border-b border-[#1F1F1F]">
-        {(["rankings", "projections", "news", "veto", "settings"] as Tab[]).map((t) => (
+        {(["rankings", "projections", "taste", "news", "veto", "settings"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -103,6 +105,8 @@ function Console() {
         <Editor />
       ) : tab === "projections" ? (
         <ProjectionsEditor />
+      ) : tab === "taste" ? (
+        <TasteFit />
       ) : tab === "news" ? (
         <NewsManager />
       ) : tab === "veto" ? (
@@ -111,6 +115,231 @@ function Console() {
         <Settings />
       )}
     </Shell>
+  )
+}
+
+// Engine health: what the last runs checked, and whether publishing is currently blocked.
+//
+// The board refuses to publish when a critical invariant fails, which turns an invisible failure
+// (wrong numbers) into a visible one (stale numbers) — but only if the staleness is actually
+// surfaced somewhere. This is that somewhere.
+function EngineHealth() {
+  const [data, setData] = useState<EngineHealthResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(() => {
+    setLoading(true)
+    fetch(`/api/admin/engine-health?season=${SEASON}`)
+      .then((r) => r.json())
+      .then((d) => !d.error && setData(d as EngineHealthResponse))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => load(), [load])
+
+  const latest = data?.runs?.[0]
+  const blocked = latest && !latest.ok
+
+  return (
+    <div
+      className={cn(
+        "mb-6 rounded-xl border p-4",
+        blocked ? "border-[#f87171]/50 bg-[#f87171]/[0.06]" : "border-[#1F1F1F] bg-[#0D0D0D]",
+      )}
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <Activity className={cn("h-4 w-4", blocked ? "text-[#f87171]" : "text-[#7fe3f0]")} />
+        <h3 className="text-sm font-medium text-white">Engine health</h3>
+        {loading && <span className="text-xs text-[#666]">checking…</span>}
+        <button onClick={load} className="ml-auto text-xs text-[#919191] hover:text-white">
+          Refresh
+        </button>
+      </div>
+
+      {!data || data.runs.length === 0 ? (
+        <p className="text-sm text-[#919191]">
+          No runs recorded yet. The next rankings build will record what it checked.
+        </p>
+      ) : blocked ? (
+        <>
+          <p className="mb-2 text-sm text-[#f87171]">
+            Publishing is blocked — the last run failed its invariants and did not write a board.
+            What users see is the last board that passed.
+          </p>
+          <ul className="mb-2 space-y-1">
+            {latest!.failures.map((f) => (
+              <li key={f.id} className="text-xs text-[#E7E7E7]">
+                <span className="font-mono text-[#f87171]">{f.severity}</span> · {f.detail}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : (
+        <p className="mb-2 text-sm text-[#919191]">
+          Last run passed {latest!.checks.length} checks at {new Date(latest!.ran_at).toLocaleString()}.
+        </p>
+      )}
+
+      {data && data.runs.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {data.runs.map((r) => (
+            <span
+              key={r.id}
+              title={`${r.job} · ${new Date(r.ran_at).toLocaleString()}${r.failures.length ? ` · ${r.failures.map((f) => f.detail).join("; ")}` : ""}`}
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                r.ok ? "bg-[#7fe3f0]/15 text-[#7fe3f0]" : "bg-[#f87171]/15 text-[#f87171]",
+              )}
+            >
+              {r.ok ? "pass" : "fail"}
+            </span>
+          ))}
+          {/* Warnings don't block a publish, but they're the early version of the thing that will. */}
+          {latest && latest.failures.some((f) => f.severity === "warning") && (
+            <span className="ml-2 text-[10px] text-[#c084fc]">
+              {latest.failures.filter((f) => f.severity === "warning").length} warning(s) — see tooltip
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Taste tab: how far the model's own board sits from the edited one, and what the engine has
+// learned from the edits so far. The tuning scoreboard — a change that fits the taste better shows
+// up here as a smaller rank gap before it shows up as fewer things worth dragging.
+function TasteFit() {
+  const [scoringKey, setScoringKey] = useState<(typeof SCORING_KEYS)[number]>("ppr_1qb")
+  const [data, setData] = useState<TasteFitResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setErr(null)
+    fetch(`/api/admin/taste-fit?season=${SEASON}&scoring_key=${scoringKey}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return
+        if (d.error) setErr(d.error)
+        else setData(d as TasteFitResponse)
+      })
+      .catch(() => !cancelled && setErr("failed to load"))
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
+  }, [scoringKey])
+
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <select
+          value={scoringKey}
+          onChange={(e) => setScoringKey(e.target.value as typeof scoringKey)}
+          className={SELECT_CLASS}
+          style={SELECT_STYLE}
+        >
+          {SCORING_KEYS.map((k) => (
+            <option key={k} value={k}>
+              {k}
+            </option>
+          ))}
+        </select>
+        {loading && <span className="text-xs text-[#919191]">Loading…</span>}
+      </div>
+
+      <p className="mb-4 text-xs text-[#666]">
+        Your edits are stored twice: as an override that pins this board&apos;s exact order, and as a
+        points-space prior that carries the same opinion to every format, every synced league, and
+        the surfaces that run on projected points. Run{" "}
+        <code className="rounded bg-[#1A1A1A] px-1 py-0.5 text-[#a5f3fc]">pnpm fit:taste</code> to
+        refit the coefficients below from your edits.
+      </p>
+
+      {err && <p className="text-sm text-[#f87171]">{err}</p>}
+
+      {data && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card title="Agreement, where you have an opinion">
+            <Stat label="Edited players" value={String(data.overrides)} />
+            <Stat label="Portable priors" value={String(data.priors)} />
+            <Stat label="Rank correlation" value={data.agreement.spearman.toFixed(3)} />
+            <Stat label="Mean rank gap" value={String(data.agreement.meanAbsRankDelta)} />
+            <Stat label="Worst gap" value={String(data.agreement.maxAbsRankDelta)} />
+          </Card>
+
+          <Card title="Positional bias (+ = model ranks it below you)">
+            {Object.entries(data.agreement.biasByPosition).length === 0 ? (
+              <p className="text-sm text-[#919191]">No edits yet.</p>
+            ) : (
+              Object.entries(data.agreement.biasByPosition)
+                .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                .map(([pos, bias]) => (
+                  <Stat key={pos} label={pos} value={`${bias > 0 ? "+" : ""}${bias}`} />
+                ))
+            )}
+          </Card>
+
+          <Card title="Opinion coefficients in force">
+            {Object.entries(data.coefficients).map(([key, v]) => (
+              <Stat key={key} label={key} value={v.toFixed(4)} />
+            ))}
+          </Card>
+
+          <Card title="Priors the board has drifted under">
+            {data.stale.length === 0 ? (
+              <p className="text-sm text-[#919191]">
+                None — every opinion still sits on roughly the board it was made against.
+              </p>
+            ) : (
+              data.stale.map((s) => (
+                <Stat
+                  key={s.sleeper_id}
+                  label={s.name}
+                  value={`${s.mult > 1 ? "+" : ""}${((s.mult - 1) * 100).toFixed(1)}% · drift ${s.drift.toFixed(1)}`}
+                />
+              ))
+            )}
+          </Card>
+
+          <Card title="Biggest disagreements">
+            {data.agreement.worst.length === 0 ? (
+              <p className="text-sm text-[#919191]">No edits yet.</p>
+            ) : (
+              data.agreement.worst.map((w) => (
+                <Stat
+                  key={w.sleeper_id}
+                  label={`${data.names[w.sleeper_id] ?? w.sleeper_id} (${w.position ?? "?"})`}
+                  value={`model #${w.modelRank} · you #${w.adminRank}`}
+                />
+              ))
+            )}
+          </Card>
+        </div>
+      )}
+    </>
+  )
+}
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-[#1F1F1F] bg-[#0D0D0D] p-4">
+      <h3 className="mb-3 text-sm font-medium text-white">{title}</h3>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-sm">
+      <span className="truncate text-[#919191]">{label}</span>
+      <span className="shrink-0 font-mono text-[#E7E7E7]">{value}</span>
+    </div>
   )
 }
 
@@ -179,6 +408,7 @@ function Settings() {
 
   return (
     <div className="space-y-8">
+      <EngineHealth />
       <section>
         <div className="mb-1 flex items-center gap-2">
           <Power className="h-4 w-4 text-[#a5f3fc]" />
@@ -573,6 +803,14 @@ function Editor() {
 
   // Admin typed a new display score for a player: convert it back to the raw value units the
   // board actually sorts/stores on, then edit exactly like a drag would.
+  // The reason behind an edit. Worth a text box because it's the only part of a hand ranking the
+  // system can't reconstruct later: the fit script trains on these, and the board can show them.
+  const setRowNote = useCallback((id: string, note: string) => {
+    setRows((prev) =>
+      prev.map((r) => (r.sleeper_id === id ? { ...r, note, dirty: true, cleared: false } : r)),
+    )
+  }, [])
+
   const setRowScore = useCallback(
     (id: string, score: number) => {
       const raw = scoreToValue(score, scoreScale)
@@ -755,7 +993,7 @@ function Editor() {
         .map((r) =>
           r.cleared
             ? { sleeper_id: r.sleeper_id } // both null → clear
-            : { sleeper_id: r.sleeper_id, manual_value: r.value },
+            : { sleeper_id: r.sleeper_id, manual_value: r.value, note: r.note ?? null },
         )
       const res = await fetch("/api/admin/overrides", {
         method: "POST",
@@ -896,6 +1134,7 @@ function Editor() {
                     onInsertBreak={() => insertBreak(it.row.sleeper_id)}
                     onReset={() => resetRow(it.row.sleeper_id)}
                     onScoreChange={(score) => setRowScore(it.row.sleeper_id, score)}
+                    onNoteChange={(note) => setRowNote(it.row.sleeper_id, note)}
                   />
                 ),
               )}
@@ -963,6 +1202,7 @@ function SortableRow({
   onInsertBreak,
   onReset,
   onScoreChange,
+  onNoteChange,
 }: {
   row: Row
   score: number
@@ -971,6 +1211,7 @@ function SortableRow({
   onInsertBreak: () => void
   onReset: () => void
   onScoreChange: (score: number) => void
+  onNoteChange: (note: string) => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: row.sleeper_id,
@@ -983,6 +1224,12 @@ function SortableRow({
   const [text, setText] = useState(score.toFixed(1))
   useEffect(() => setText(score.toFixed(1)), [score])
 
+  // The note box is opened by the pencil, or shows itself when there's already a note to see.
+  const [noteOpen, setNoteOpen] = useState(false)
+  const [noteText, setNoteText] = useState(row.note ?? "")
+  useEffect(() => setNoteText(row.note ?? ""), [row.note])
+  const showNote = noteOpen || Boolean(row.note)
+
   function commit() {
     const n = parseFloat(text)
     if (Number.isFinite(n)) onScoreChange(Math.max(1, Math.min(100, n)))
@@ -994,11 +1241,12 @@ function SortableRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex items-center gap-3 rounded-lg border px-3 py-2",
+        "group rounded-lg border px-3 py-2",
         isDragging ? "border-[#a5f3fc] bg-[#151515]" : "border-[#1F1F1F] bg-[#0D0D0D]",
         row.dirty && !row.cleared && "border-[#a5f3fc]/50",
       )}
     >
+      <div className="flex items-center gap-3">
       <button
         {...attributes}
         {...listeners}
@@ -1060,6 +1308,17 @@ function SortableRow({
         <span className="w-16" />
       )}
       <button
+        onClick={() => setNoteOpen((v) => !v)}
+        className={cn(
+          "transition-opacity hover:text-[#a5f3fc]",
+          row.note ? "text-[#a5f3fc]" : "text-[#666] opacity-0 group-hover:opacity-100",
+        )}
+        aria-label={`Why ${row.name} is ranked here`}
+        title="Why you moved him — trains the model and shows on the board"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <button
         onClick={onReset}
         disabled={!row.overridden && !row.dirty}
         className="text-[#666] hover:text-white disabled:opacity-30"
@@ -1067,6 +1326,22 @@ function SortableRow({
       >
         <RotateCcw className="h-3.5 w-3.5" />
       </button>
+      </div>
+      {showNote && (
+        <input
+          type="text"
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          onBlur={() => noteText !== (row.note ?? "") && onNoteChange(noteText)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+            if (e.key === "Escape") setNoteText(row.note ?? "")
+          }}
+          placeholder={`Why is ${row.name} here?`}
+          aria-label={`Note for ${row.name}`}
+          className="mt-2 w-full rounded-md border border-[#2A2A2A] bg-[#151515] px-2 py-1 text-xs text-[#E7E7E7] placeholder:text-[#4A4A4A] focus:border-[#a5f3fc] focus:outline-none"
+        />
+      )}
     </div>
   )
 }

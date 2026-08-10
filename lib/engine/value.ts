@@ -118,6 +118,18 @@ export function buildValueModel({ players, rosters, rosterPositions, totalRoster
     byPosition[p].spreadNorm = clamp(refSpreadSd / sd, 0.75, 1.35)
   }
 
+  return modelFromPositions(byPosition)
+}
+
+/**
+ * Wrap already-computed position models in the scoring functions.
+ *
+ * Split out from buildValueModel so a model can be rebuilt from serialized parts — the league board
+ * is computed on the server and consumed in the browser, and the alternative was a second copy of
+ * `adjustedVorp` living in client code. Two implementations of the pricing rule is how the client
+ * and server boards drifted apart in the first place.
+ */
+export function modelFromPositions(byPosition: Record<string, PositionModel>): ValueModel {
   const vorp = (position: string, value: number): number => {
     const m = byPosition[position]
     if (!m) return 0

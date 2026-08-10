@@ -24,6 +24,7 @@ export function Sidebar() {
         <FinbroMark className="h-full w-full" />
       </div>
 
+      {/* Sync sits in the same flex column as the tabs so every button in the rail gets identical height and spacing. */}
       <nav className="flex w-full flex-1 flex-col items-center gap-2">
         {NAV.map(({ tab, label, icon: Icon }) => {
           const active = activeTab === tab
@@ -45,19 +46,19 @@ export function Sidebar() {
             </button>
           )
         })}
-      </nav>
 
-      <div className="mt-auto flex w-full border-t border-[#1F1F1F] pt-3">
+        <div className="w-full shrink-0 border-t border-[#1F1F1F]" />
+
         <button
           onClick={synced ? disconnect : requestSync}
-          className="flex h-[3.75rem] w-full flex-col items-center justify-center gap-1 rounded-lg text-center text-[#A0A0A0] transition-colors cursor-pointer hover:bg-white/[0.04] hover:text-[#E7E7E7]"
+          className="flex w-full flex-1 min-h-[3.75rem] max-h-[7rem] flex-col items-center justify-center gap-1 rounded-lg text-center text-[#A0A0A0] transition-colors cursor-pointer hover:bg-white/[0.04] hover:text-[#E7E7E7]"
         >
           {synced ? <Unlink className="h-5 w-5 shrink-0" /> : <Link2 className="h-5 w-5 shrink-0" />}
           <span className="whitespace-nowrap text-[9px] font-semibold leading-tight tracking-normal">
             {synced ? "UNSYNC" : "SYNC"}
           </span>
         </button>
-      </div>
+      </nav>
     </aside>
   )
 }

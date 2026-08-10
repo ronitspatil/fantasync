@@ -25,7 +25,11 @@ export function LegalShell({
         </Link>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 md:px-6 md:py-12">
+      {/* min-h-dvh keeps the footer below the fold here too, so a short legal page behaves like
+          every app tab rather than showing its footer on load. shrink-0 replaces flex-1: an explicit
+          min-height drops the automatic one that keeps a flex item from shrinking under its own
+          content, and a long document would otherwise be squeezed to a single viewport. */}
+      <main className="mx-auto w-full min-h-dvh max-w-3xl shrink-0 px-4 py-8 md:px-6 md:py-12">
         <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{title}</h1>
         <p className="mt-2 text-sm text-[#666]">Last updated {updated}</p>
         <div className="mt-10 flex flex-col gap-8">{children}</div>

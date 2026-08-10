@@ -74,6 +74,35 @@ describe("shrinkZ", () => {
   it("refuses to propagate a non-finite z", () => {
     expect(shrinkZ(Number.NaN, 200, 16, "WR", "volume")).toBe(0)
   })
+
+  it("falls back to the role prior instead of the position mean on a thin sample", () => {
+    // Two games of usage, but a starter's snap share: the fallback should be "he starts", not
+    // "he's average". This is the correction the hand edits kept making by hand.
+    const starterRole = 1.2
+    const withRole = shrinkZ(0.9, 30, 2, "WR", "volume", starterRole)
+    const withoutRole = shrinkZ(0.9, 30, 2, "WR", "volume")
+    expect(withRole).toBeGreaterThan(withoutRole)
+    expect(withRole).toBeGreaterThan(0.8) // stays near his role rather than collapsing toward 0
+  })
+
+  it("lets the observation take over as the sample fills in", () => {
+    // With a full season the prior barely matters — the player's own usage is the evidence.
+    const thin = shrinkZ(0, 20, 2, "WR", "volume", 1.5)
+    const full = shrinkZ(0, 220, 17, "WR", "volume", 1.5)
+    expect(thin).toBeGreaterThan(full)
+    expect(full).toBeLessThan(0.4)
+  })
+
+  it("shrinks a small-sample outlier toward the prior, not past it", () => {
+    // A three-game breakout still gets faded — toward his role, which is the honest target.
+    const shrunk = shrinkZ(2.5, 45, 3, "RB", "volume", 0.5)
+    expect(shrunk).toBeLessThan(2.5)
+    expect(shrunk).toBeGreaterThan(0.5)
+  })
+
+  it("uses the prior when the observation itself is unreadable", () => {
+    expect(shrinkZ(Number.NaN, 200, 16, "WR", "volume", 0.8)).toBeCloseTo(0.8, 6)
+  })
 })
 
 describe("fitScale", () => {

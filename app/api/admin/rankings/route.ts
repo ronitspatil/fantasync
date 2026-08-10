@@ -27,6 +27,9 @@ export interface AdminRankingRow {
   overridden: boolean
   agent_delta: number
   adjusted: boolean
+  // Why this edit exists, if it was written down. Training label for the taste fit and the copy
+  // behind the board's "Fantasync take" badge.
+  note: string | null
 }
 
 export async function GET(req: Request) {
@@ -50,7 +53,7 @@ export async function GET(req: Request) {
       .eq("scoring_key", scoringKey),
     sb
       .from("ranking_overrides")
-      .select("sleeper_id,manual_value,manual_tier")
+      .select("sleeper_id,manual_value,manual_tier,note")
       .eq("season", season)
       .eq("week", week)
       .eq("scoring_key", scoringKey),
@@ -84,6 +87,10 @@ export async function GET(req: Request) {
     for (const r of data ?? []) names.set(r.sleeper_id as string, { name: r.name as string, team: (r.team as string) ?? null })
   }
 
+  const noteById = new Map<string, string | null>(
+    (ovRes.data ?? []).map((o) => [o.sleeper_id as string, (o.note as string | null) ?? null]),
+  )
+
   const rows: AdminRankingRow[] = composed.map((c) => ({
     sleeper_id: c.sleeper_id,
     name: names.get(c.sleeper_id)?.name ?? c.sleeper_id,
@@ -98,6 +105,7 @@ export async function GET(req: Request) {
     overridden: c.overridden,
     agent_delta: c.agent_delta,
     adjusted: c.adjusted,
+    note: noteById.get(c.sleeper_id) ?? null,
   }))
 
   return Response.json({

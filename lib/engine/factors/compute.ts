@@ -339,6 +339,15 @@ export async function computePlayerFactors(targetSeason: number): Promise<Factor
       // is the more trustworthy of the two and the whole reason snap counts are ingested.
       const volumeZ = zOn(oppScale, opportunityRaw(a))
       const snapZ = snapScale ? zed(snapScale, snapShare(adv)) : null
+      // Volume shrinks toward his ROLE, not toward the position average.
+      //
+      // Snap share is the right prior because it's a rate, not a count: a receiver who played two
+      // games at a 79% share has a thin volume sample and a perfectly clear role. Shrinking his
+      // usage read toward the position mean would price him as an average receiver who also got
+      // hurt — penalizing him twice for one missed season, once in his totals and again in his
+      // read. Toward his own snap share, a short sample falls back to "the job he actually had",
+      // which is both more accurate and the thing the board was consistently getting wrong.
+      const rolePrior = snapZ ?? 0
       const opp = shrinkZ(
         blendAvailable([
           { z: volumeZ, weight: 1 - SNAP_SHARE_WEIGHT },
@@ -348,6 +357,7 @@ export async function computePlayerFactors(targetSeason: number): Promise<Factor
         games,
         pos,
         "volume",
+        rolePrior,
       )
 
       // Efficiency: four reads on the same question, renormalized over whichever exist. A player

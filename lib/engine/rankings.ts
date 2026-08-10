@@ -13,6 +13,8 @@ import { projValue, adpKeyFor, normalizePlayerName, type Scoring } from "@/lib/s
 import { buildValueModel, type ValueModel } from "@/lib/engine/value"
 import { contextFromSleeperLine, playerContextMult } from "@/lib/engine/context-adjust"
 import { blendWithMarketRank, type MarketRankSource } from "@/lib/engine/market-blend"
+import { applyPointsMultipliers, applyPriors } from "@/lib/engine/priors"
+import { OPINION_BAND } from "@/lib/engine/factors/opinion"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 import type { SeasonProjection } from "@/app/api/sleeper/season-projections/route"
 
@@ -73,6 +75,8 @@ export interface BoardPlayerMeta {
   position: string
   name?: string | null
   age?: number | null
+  // Current NFL team — the opinion band reads a player's offense off it.
+  team?: string | null
 }
 
 export interface SeasonBoardInput {
@@ -109,6 +113,25 @@ export interface SeasonBoardInput {
     scoring: Record<string, number>,
     rawPoints: number,
   ) => number
+  // Taste priors by sleeper_id (points-space multipliers, see lib/engine/priors). Applied after
+  // the projection is scored and before the market blend, renormalized within position. Omitted ⇒
+  // no priors, and the board is identical to what it was before they existed.
+  priors?: Map<string, number>
+  // The model's own opinion term (lib/engine/factors/opinion), same units and same treatment as
+  // the priors — applied first, so a hand prior always gets the last word.
+  //
+  // A callback rather than a map because the term's central feature (does the projection see a
+  // bigger role than his history did?) is measured against the scored pool, which only exists in
+  // here — and scoring the pool a second time outside would be both wasteful and a chance for the
+  // two passes to disagree.
+  opinion?: (pool: OpinionPoolEntry[]) => Map<string, number>
+}
+
+export interface OpinionPoolEntry {
+  id: string
+  position: string
+  points: number
+  team: string | null
 }
 
 export interface BoardEntry {
@@ -158,6 +181,34 @@ export function buildSeasonBoard(input: SeasonBoardInput): SeasonBoard {
     preBlend.push({ id, position: pos, value: seasonPts })
     const adp = sp.adp?.[adpKey]
     if (typeof adp === "number" && adp > 0) adpById.set(id, adp)
+  }
+
+  // Opinions sit here — on projected points, before the market blend and before VORP — so they
+  // reach the market comparison, the replacement level, and every downstream consumer of season
+  // points, instead of being value-space patches on one board.
+  //
+  // Model first, human second: the admin's prior is derived from a board that already had the
+  // model's opinion in it, so applying it last is what makes the two compose instead of fight.
+  if (input.opinion) {
+    const pool = preBlend.map((p) => ({
+      id: p.id,
+      position: p.position,
+      points: p.value,
+      team: playerMeta(p.id)?.team ?? null,
+    }))
+    const adjusted = applyPointsMultipliers(
+      pool.map((p) => ({ id: p.id, position: p.position, points: p.points })),
+      input.opinion(pool),
+      OPINION_BAND,
+    )
+    for (const p of preBlend) p.value = adjusted.get(p.id) ?? p.value
+  }
+  if (input.priors && input.priors.size > 0) {
+    const adjusted = applyPriors(
+      preBlend.map((p) => ({ id: p.id, position: p.position, points: p.value })),
+      input.priors,
+    )
+    for (const p of preBlend) p.value = adjusted.get(p.id) ?? p.value
   }
 
   const fpRankByName = input.fpRankByName

@@ -18,7 +18,7 @@ import { computeProjections } from "@/lib/engine/compute-projections"
 import { computeSeasonRankings } from "@/lib/engine/compute-rankings"
 import { refreshDvp } from "@/lib/engine/dvp/store"
 import { refreshPlayerFactors } from "@/lib/engine/factors/store"
-import { logWeekCalibration } from "@/lib/engine/calibration-store"
+import { backfillCalibration } from "@/lib/engine/calibration-store"
 import { pipelineOrder } from "@/lib/engine/pipeline"
 
 const DEFAULT_SEASON = 2026
@@ -41,12 +41,11 @@ const JOBS: Record<string, (ctx: JobContext) => Promise<Record<string, unknown>>
     ...(await computeProjections(season, week)),
   }),
   "compute-rankings": async ({ origin, season }) => ({ ...(await computeSeasonRankings(origin, season)) }),
-  // Records projected-vs-actual for a completed week (defaults to week 1). Feeds the calibration
-  // report, which is what should govern any widening of the factor bands.
-  "log-calibration": async ({ season, week }) => ({
-    week,
-    ...(await logWeekCalibration(season, week)),
-  }),
+  // Records projected-vs-actual pairs. Backfills every unlogged week through the one requested,
+  // matching the cron (app/api/cron/log-calibration) — a week that isn't captured while its
+  // projections are live cannot be reconstructed afterwards. Feeds the calibration report, which
+  // is what should govern any widening of the factor bands.
+  "log-calibration": async ({ season, week }) => ({ ...(await backfillCalibration(season, week)) }),
 }
 
 export async function POST(req: Request) {

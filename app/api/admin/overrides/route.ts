@@ -8,6 +8,7 @@ export const fetchCache = "force-no-store"
 
 import { isAdminRequest } from "@/lib/admin-auth"
 import { supabaseAdmin } from "@/lib/supabase/admin"
+import { derivePriorsFromOverrides, deletePriors, upsertPriors } from "@/lib/engine/priors-store"
 
 const SEASON_WEEK_SENTINEL = 0
 
@@ -15,6 +16,7 @@ interface OverrideInput {
   sleeper_id: string
   manual_value?: number | null
   manual_tier?: number | null
+  note?: string | null
 }
 
 export async function POST(req: Request) {
@@ -60,6 +62,7 @@ export async function POST(req: Request) {
       scoring_key: scoringKey,
       manual_value: hasValue ? o.manual_value : null,
       manual_tier: hasTier ? o.manual_tier : null,
+      note: o.note ?? null,
       edited_by: "ronit",
       edited_at: new Date().toISOString(),
     })
@@ -80,6 +83,44 @@ export async function POST(req: Request) {
       .eq("scoring_key", scoringKey)
       .in("sleeper_id", toClear)
     if (error) return Response.json({ error: error.message }, { status: 500 })
+  }
+
+  // Mirror every season-board edit into a points-space prior (lib/engine/priors), which is the
+  // form that survives a recompute and reaches other formats, synced leagues, and the surfaces
+  // that run on projected points. The override stays authoritative for THIS board's exact order;
+  // the prior is what generalizes. Weekly edits are matchup calls, so they mirror nothing.
+  let priorsWritten = 0
+  if (week === SEASON_WEEK_SENTINEL) {
+    try {
+      const derived = await derivePriorsFromOverrides(
+        season,
+        scoringKey,
+        toUpsert
+          .filter((o) => o.manual_value != null)
+          .map((o) => ({
+            sleeper_id: o.sleeper_id as string,
+            manual_value: Number(o.manual_value),
+            note: (o.note as string | null) ?? null,
+          })),
+      )
+      const noteById = new Map(overrides.map((o) => [o.sleeper_id, o.note ?? null]))
+      priorsWritten = await upsertPriors(
+        season,
+        derived.map((d) => ({ ...d, note: noteById.get(d.sleeper_id) ?? null, source: "manual" as const })),
+      )
+      // Clearing an override clears the opinion behind it — otherwise the prior keeps applying a
+      // correction the admin just took back, and the board never returns to the model's own read.
+      if (toClear.length > 0) await deletePriors(season, toClear)
+    } catch (e) {
+      // A prior is an enhancement of an edit that already saved. Report it, don't fail the write.
+      return Response.json({
+        ok: true,
+        upserted: toUpsert.length,
+        cleared: toClear.length,
+        breaks: null,
+        prior_error: e instanceof Error ? e.message : "prior write failed",
+      })
+    }
   }
 
   // Tier breaks: when provided, fully replace the anchor set for this format (delete all, then
@@ -111,5 +152,11 @@ export async function POST(req: Request) {
     breaksWritten = anchors.length
   }
 
-  return Response.json({ ok: true, upserted: toUpsert.length, cleared: toClear.length, breaks: breaksWritten })
+  return Response.json({
+    ok: true,
+    upserted: toUpsert.length,
+    cleared: toClear.length,
+    breaks: breaksWritten,
+    priors: priorsWritten,
+  })
 }

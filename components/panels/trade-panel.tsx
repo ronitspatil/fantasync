@@ -136,7 +136,7 @@ function FreeTrade() {
     // xl:min-h-0 — collapsed to nothing and spilled their rows behind the verdict card.
     <div className="flex flex-col gap-6 xl:min-h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
+        <div className="h-10 w-10 shrink-0 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <ArrowLeftRight className="h-5 w-5 text-[#a5f3fc]" />
         </div>
         <div className="flex-1">
@@ -440,7 +440,7 @@ function TradeContent() {
           and their rows spilled behind the verdict card. */}
       <div className="flex flex-col gap-6 xl:min-h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
+        <div className="h-10 w-10 shrink-0 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <ArrowLeftRight className="h-5 w-5 text-[#a5f3fc]" />
         </div>
         <div className="flex-1">

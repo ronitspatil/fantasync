@@ -202,7 +202,7 @@ export function FreeRoster() {
     <div className="flex flex-col gap-6">
       <Card className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
+          <div className="h-10 w-10 shrink-0 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
             <Users className="h-5 w-5 text-[#a5f3fc]" />
           </div>
           <div>
@@ -388,7 +388,7 @@ function SettingsStep({
     // cards. 7rem is the main element's own vertical padding at xl (pt-20 + pb-8).
     <div className="flex flex-col gap-6 xl:h-[calc(100vh-7rem)]">
       <Card className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
+        <div className="h-10 w-10 shrink-0 rounded-xl bg-[#1A1A1A] flex items-center justify-center">
           <Users className="h-5 w-5 text-[#a5f3fc]" />
         </div>
         <div>

@@ -9,20 +9,7 @@ import Link from "next/link"
 export function SiteFooter() {
   return (
     <footer className="border-t border-[#161616] px-4 py-3 md:px-6">
-      <div className="flex items-center justify-between gap-2 whitespace-nowrap text-[10px] text-[#4F4F4F] sm:gap-4">
-        {/* Icon-only, so the accessible name has to come from aria-label — the glyph itself is
-            decorative and would otherwise read out as the letter "X" alone. Unboxed: a bordered
-            chip read as a button and pulled more attention than a footer link should. */}
-        <a
-          href="https://x.com/fantasyncron"
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label="Fantasync on X"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded font-bold leading-none transition-colors hover:text-[#919191]"
-        >
-          <span aria-hidden>X</span>
-        </a>
-
+      <div className="flex items-center justify-end gap-2 whitespace-nowrap text-[10px] text-[#4F4F4F] sm:gap-4">
         <nav className="flex items-center gap-2 sm:gap-4">
           <Link href="/privacy" className="transition-colors hover:text-[#919191]">
             Privacy Policy

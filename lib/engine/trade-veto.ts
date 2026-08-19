@@ -8,25 +8,36 @@
 // mine) — and compares its magnitude against two admin-set thresholds. Everything here is pure
 // so the thresholds can be exercised without a league, a board, or a network call.
 
-import type { TradeEval } from "@/lib/engine/trade-value"
+import {
+  dealSize,
+  FAIR_LEAN,
+  LOPSIDED_LEAN,
+  MATERIAL_LOSS,
+  TRADE_MATERIALITY,
+  type TradeEval,
+} from "@/lib/engine/trade-value"
 
 export interface VetoPolicy {
   // |lean| at or above which a trade is merely worth a human look.
   reviewAt: number
   // |lean| at or above which the trade clears the bar for a veto.
   vetoAt: number
-  // When true, a trade where one side's surplus is negative is escalated to at least "review"
-  // regardless of lean. A deal can read as near-even in relative terms while still handing one
-  // manager a strictly worse roster — the classic shape of a salary-dump or a favour to a friend.
+  // When true, a trade where one side loses a MATERIAL amount of value in its own valuation is
+  // escalated to at least "review" regardless of lean. A deal can read as near-even in relative
+  // terms while still handing one manager a strictly worse roster — the classic shape of a
+  // salary-dump or a favour to a friend.
+  //
+  // Material, not merely negative: the two surpluses are mirror images, so a sign test alone flags
+  // every trade ever entered and "clear" becomes unreachable. MATERIAL_LOSS is the bar.
   flagNegativeSurplus: boolean
 }
 
 // Defaults deliberately reuse the trade model's own calibration rather than inventing numbers:
-// the analyzer already calls |lean| < 0.12 "Fair" and |lean| >= 0.40 "Lopsided". So anything the
-// analyzer wouldn't call fair is worth a look, and anything it calls lopsided clears the veto bar.
+// the analyzer calls |lean| < FAIR_LEAN "Fair" and |lean| >= LOPSIDED_LEAN "Lopsided". So anything
+// the analyzer wouldn't call fair is worth a look, and anything it calls lopsided clears the bar.
 export const DEFAULT_VETO_POLICY: VetoPolicy = {
-  reviewAt: 0.12,
-  vetoAt: 0.4,
+  reviewAt: FAIR_LEAN,
+  vetoAt: LOPSIDED_LEAN,
   flagNegativeSurplus: true,
 }
 
@@ -99,13 +110,30 @@ export function assessVeto(evaluation: TradeEval, rawPolicy: Partial<VetoPolicy>
     )
   }
 
+  // Stakes gate. A veto is the league overruling two managers who both agreed to something, and a
+  // deal too small to affect anyone doesn't clear that bar however lopsided its ratio. It clears
+  // outright rather than dropping to "review", because such a deal is equally not worth a
+  // commissioner's attention — otherwise every waiver-fodder swap sits in the queue forever.
+  // Nothing is hidden: the reason survives on the cleared assessment for the UI to show.
+  const size = dealSize(evaluation)
+  if (size < TRADE_MATERIALITY && status !== "clear") {
+    status = "clear"
+    reasons.length = 0
+    reasons.push(
+      `Too small to act on — the larger side is worth ${size.toFixed(1)}, under the ${TRADE_MATERIALITY} materiality floor.`,
+    )
+  }
+
   // A one-sided-loss flag can only ever raise the status to "review" — never to "vetoable".
   // Losing value on a trade is a manager's own call to make; it becomes the league's business
   // only when the imbalance itself is extreme, which the threshold above already covers.
   if (policy.flagNegativeSurplus) {
-    const loser = evaluation.aSurplus < 0 ? "A" : evaluation.bSurplus < 0 ? "B" : null
-    if (loser) {
-      reasons.push(`Side ${loser} comes out behind in its own valuation (negative surplus).`)
+    const worst = Math.min(evaluation.aSurplus, evaluation.bSurplus)
+    if (worst < -MATERIAL_LOSS) {
+      const loser = evaluation.aSurplus <= evaluation.bSurplus ? "A" : "B"
+      reasons.push(
+        `Side ${loser} comes out ${Math.abs(worst).toFixed(1)} behind in its own valuation — past the ${MATERIAL_LOSS} materiality floor.`,
+      )
       if (status === "clear") status = "review"
     }
   }

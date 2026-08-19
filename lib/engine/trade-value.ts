@@ -42,6 +42,47 @@ export interface TradeEval {
   lean: number
 }
 
+/**
+ * How big the deal is: the most value either side puts on the table, in base-value points.
+ *
+ * `lean` is a RATIO and deliberately says nothing about size — swapping two waiver-wire bodies and
+ * swapping two first-round picks can produce the identical lean. Anything that acts on an imbalance
+ * rather than merely displaying it (the veto evaluator) has to know which it is looking at.
+ *
+ * The largest side, not the average: a star handed over for nothing averages out to half his value,
+ * and that is precisely the deal a commissioner most wants to see.
+ */
+export function dealSize(e: Pick<TradeEval, "aValueIn" | "aValueOut">): number {
+  return Math.max(e.aValueOut, e.aValueIn)
+}
+
+// Verdict thresholds on |lean|, exported because the veto policy calibrates against them rather
+// than inventing its own numbers — see trade-veto.ts.
+export const FAIR_LEAN = 0.12
+export const LOPSIDED_LEAN = 0.4
+
+/**
+ * The smallest deal, in base-value points, worth reasoning about at all.
+ *
+ * Used to floor the denominator of the imbalance ratio (without it, two bench bodies worth 2.0 and
+ * 0.5 divide down to a saturated ±1 "lopsided" reading) and as the veto evaluator's stakes gate.
+ *
+ * The absolute number is only meaningful because the scale is anchored to NORM_PERCENTILE: 8 means
+ * "8% of a 95th-percentile player", which is pool-relative even though it doesn't look it. Move
+ * that anchor and this moves with it.
+ */
+export const TRADE_MATERIALITY = 8
+
+/**
+ * The smallest one-sided LOSS worth flagging a manager for.
+ *
+ * Deliberately its own constant even though it currently equals TRADE_MATERIALITY. "The smallest
+ * deal worth reasoning about" and "the smallest loss worth raising" are different questions — a
+ * 60-point deal with a 9-point loss and a 9-point deal are not the same event — and sharing one
+ * number would make that look intentional rather than coincidental.
+ */
+export const MATERIAL_LOSS = 8
+
 export interface SuggestedTrade {
   partnerRosterId: number
   give: string[] // my player ids
@@ -76,9 +117,22 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
   const startableCapacity = (pos: string): number =>
     !rosterPositions || rosterPositions.length === 0 ? Infinity : capacityByPos[pos] ?? 0
 
-  // Normalize both value sources onto a common 0–100 scale.
-  const vorpMax = Math.max(1, ...players.map((p) => Math.max(0, p.vorp)))
-  const dynMax = Math.max(1, ...players.map((p) => p.dynastyValue ?? 0))
+  // Normalize both value sources onto a common scale where ~100 is an elite player.
+  //
+  // Anchored at the 95th percentile rather than the maximum. Dividing by the max hands the entire
+  // scale to one player: on the 2026 board Josh Allen carries roughly twice the VORP of the next
+  // quarterback, so every other player on the board got squashed into the bottom half of the range
+  // and real differences between them shrank toward nothing. It also silently capped the outlier at
+  // 100, which is what made consolidating two good players into one great one read as a fleecing —
+  // the star couldn't be worth more than the scale's ceiling, however good he was. Anchoring at p95
+  // lets a genuine outlier exceed 100, which is the honest answer.
+  const NORM_PERCENTILE = 0.95
+  const vorpRef = Math.max(1, percentile(players.map((p) => Math.max(0, p.vorp)), NORM_PERCENTILE))
+  // Only the dynasty path reads this, and the redraft callers pass dynastyValue: null on every
+  // player — computing it there sorts a couple of thousand zeros to produce a discarded number.
+  const dynRef = dynastyLeague
+    ? Math.max(1, percentile(players.map((p) => p.dynastyValue ?? 0), NORM_PERCENTILE))
+    : 1
 
   // Blend weights. The DynastyProcess market is a *dynasty* signal (long-horizon, prices in
   // youth/draft capital), so we only anchor to it in dynasty leagues. In redraft the value
@@ -88,9 +142,9 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
   const CLAMP = 25 // max deviation (0–100 pts) of blend from the market anchor
 
   const baseValue = (p: TradePlayer): number => {
-    const vorpNorm = (100 * Math.max(0, p.vorp)) / vorpMax
+    const vorpNorm = (100 * Math.max(0, p.vorp)) / vorpRef
     if (!dynastyLeague || p.dynastyValue == null) return Number(vorpNorm.toFixed(2))
-    const dynNorm = (100 * p.dynastyValue) / dynMax
+    const dynNorm = (100 * p.dynastyValue) / dynRef
     const raw = wDyn * dynNorm + wVorp * vorpNorm
     const clamped = Math.max(dynNorm - CLAMP, Math.min(dynNorm + CLAMP, raw))
     return Number(clamped.toFixed(2))
@@ -117,10 +171,21 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
     }
     teamPosStrength.set(rid, strength)
   }
+  // The league-wide distribution each team's strength is scored against, sorted once per position.
+  // needMult sits under suggestTrades, which drives tens of thousands of contextualValue calls per
+  // pass — rebuilding and re-sorting this array inside the function made every one of them pay for
+  // a distribution that never changes for the life of the model.
+  const strengthDistribution = new Map<string, number[]>()
+  for (const pos of positions) {
+    strengthDistribution.set(
+      pos,
+      [...teamPosStrength.values()].map((s) => s[pos] ?? 0).sort((a, b) => a - b),
+    )
+  }
   const needMult = (rosterId: number, pos: string): number => {
     if (!SKILL.has(pos)) return 1
     const mine = teamPosStrength.get(rosterId)?.[pos] ?? 0
-    const all = [...teamPosStrength.values()].map((s) => s[pos] ?? 0).sort((a, b) => a - b)
+    const all = strengthDistribution.get(pos) ?? []
     if (all.length < 2) return 1
     // percentile of my strength (0 = weakest → biggest need)
     const below = all.filter((v) => v < mine).length
@@ -158,19 +223,44 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
     const aSurplus = Number((aValueIn - aValueOut).toFixed(2))
     const bSurplus = Number((bValueIn - bValueOut).toFixed(2))
 
-    const scale = Math.max(1, aValueOut + aValueIn) / 2
-    const diff = (aSurplus - bSurplus) / scale
-    const bothPositive = aSurplus >= -0.5 && bSurplus >= -0.5
+    // The ratio's denominator is the MEAN of the two sides — that's what makes `lean` a relative
+    // gap. Deal size, which the veto gate wants, is a different question measured differently;
+    // see dealSize.
+    const scale = Math.max(TRADE_MATERIALITY, (aValueOut + aValueIn) / 2)
+
+    // The two surpluses are two views of ONE imbalance, so their difference counts it twice —
+    // without a contextual valuation to separate them (the analyzer runs with no league attached,
+    // and then needMult and ageMult are both 1) bSurplus is the exact negation of aSurplus, and
+    // this expression returns double the real gap. Every threshold below was being met at half the
+    // imbalance its name claimed: a 20% swap read as "lopsided", a 6% swap stopped reading as fair.
+    // Halving is correct in the contextual case too — there it's the mean per-side imbalance.
+    const diff = (aSurplus - bSurplus) / (2 * scale)
+
+    // Balance is the only thing this label claims, so it's the only thing tested: a deal where one
+    // manager gains a little and the other gives up a little IS balanced. Requiring both surpluses
+    // to be positive here would make "Fair" unreachable, since without league context they're exact
+    // mirror images. The stronger win-win test lives where it belongs — suggestTrades won't propose
+    // anything unless both sides clear minSurplus.
     let verdict: TradeEval["verdict"]
-    if (Math.abs(diff) < 0.12 && bothPositive) verdict = "Fair"
-    else if (diff >= 0.4) verdict = "Lopsided — you win"
-    else if (diff > 0.12) verdict = "Favors you"
-    else if (diff <= -0.4) verdict = "Lopsided — you lose"
+    if (Math.abs(diff) < FAIR_LEAN) verdict = "Fair"
+    else if (diff >= LOPSIDED_LEAN) verdict = "Lopsided — you win"
+    else if (diff > FAIR_LEAN) verdict = "Favors you"
+    else if (diff <= -LOPSIDED_LEAN) verdict = "Lopsided — you lose"
     else verdict = "Favors them"
 
     const fairness = Number(Math.max(0, 1 - Math.abs(diff)).toFixed(2))
     const lean = Number(Math.max(-1, Math.min(1, diff)).toFixed(3))
-    return { aSurplus, bSurplus, aValueIn, aValueOut, bValueIn, bValueOut, verdict, fairness, lean }
+    return {
+      aSurplus,
+      bSurplus,
+      aValueIn,
+      aValueOut,
+      bValueIn,
+      bValueOut,
+      verdict,
+      fairness,
+      lean,
+    }
   }
 
   return {
@@ -183,6 +273,17 @@ export function buildTradeModel({ players, teams, dynastyLeague, rosterPositions
 }
 
 export type TradeModel = ReturnType<typeof buildTradeModel>
+
+// Linear-interpolated percentile over an unsorted sample. Empty sample → 0, and the caller floors.
+function percentile(xs: number[], q: number): number {
+  const s = xs.filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
+  if (s.length === 0) return 0
+  if (s.length === 1) return s[0]
+  const pos = q * (s.length - 1)
+  const lo = Math.floor(pos)
+  const hi = Math.min(s.length - 1, lo + 1)
+  return s[lo] + (s[hi] - s[lo]) * (pos - lo)
+}
 
 // Greedy search for realistic win-win trades between my team and every other team.
 // Considers 1-for-1 and 2-for-1 packages; keeps only trades where BOTH sides gain

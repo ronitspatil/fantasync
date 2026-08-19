@@ -12,7 +12,15 @@ const NON_STARTER = new Set(["BN", "IR", "TAXI"])
 const STREAM_POSITIONS = new Set(["K", "DEF"])
 const STREAM_VALUE_MULT = 0.35
 const STREAM_VALUE_CAP = 1.5
-const ELITE_TE_CUTOFF = 2
+
+// A break is only believed when the largest gap in the startable region stands well clear of the
+// typical gap there — otherwise every position has a "biggest gap" and we'd manufacture a cliff
+// out of a perfectly smooth curve.
+const TIER_BREAK_RATIO = 2.0
+// Haircut applied below the break, from just-below (MAX) to far-below (MIN). TE-only policy
+// despite the general detection — see the gate in adjustedVorp.
+const TE_CLIFF_MAX_MULT = 0.78
+const TE_CLIFF_MIN_MULT = 0.62
 
 export interface PositionModel {
   position: string
@@ -22,6 +30,9 @@ export interface PositionModel {
   scarcityMult: number // >1 scarce (steep curve), <1 replaceable (flat curve)
   slope: number // points lost per rank near replacement
   spreadNorm: number // rescales raw VORP by the position's own point-spread so cross-position comparisons aren't skewed by scale
+  // Value of the last player above a detected tier break, or null when the position's curve is
+  // smooth enough that no break is believable. See detectTierBreak.
+  tierFloor: number | null
 }
 
 export interface ValueModel {
@@ -38,8 +49,6 @@ interface BuildArgs {
   rosterPositions: string[]
   totalRosters: number
 }
-
-const SKILL = ["QB", "RB", "WR", "TE"]
 
 export function buildValueModel({ players, rosters, rosterPositions, totalRosters }: BuildArgs): ValueModel {
   // 1. Expected demand per position: run the optimizer on every roster and tally which
@@ -72,7 +81,17 @@ export function buildValueModel({ players, rosters, rosterPositions, totalRoster
     const replacementRank = Math.max(1, Math.round(demand * buffer))
     const replacementValue = valueAtRank(sorted, replacementRank)
     const slope = curveSlope(sorted, replacementRank)
-    byPosition[position] = { position, sorted, replacementRank, replacementValue, scarcityMult: 1, slope, spreadNorm: 1 }
+    const tierFloor = detectTierBreak(sorted, replacementRank)
+    byPosition[position] = {
+      position,
+      sorted,
+      replacementRank,
+      replacementValue,
+      scarcityMult: 1,
+      slope,
+      spreadNorm: 1,
+      tierFloor,
+    }
   }
 
   // 3. Scarcity multiplier: normalize each position's replacement-region slope against the
@@ -143,14 +162,20 @@ export function modelFromPositions(byPosition: Record<string, PositionModel>): V
     // over replacement is fragile and matchup-driven, so cap positive value before it leaks
     // into rankings, trade value, or team grades.
     if (STREAM_POSITIONS.has(position) && av > 0) av = Math.min(av * STREAM_VALUE_MULT, STREAM_VALUE_CAP)
-    // TE cliff: for the 2026 outlook, Bowers/McBride are the premium two-player tier. TE3+
-    // gets an immediate value haircut and then compresses toward replacement, because the rest
-    // of the pool is much closer to streamable production than to the elite tier.
-    if (position === "TE") {
-      const rank = rankInSortedDesc(m.sorted, value)
-      if (rank > ELITE_TE_CUTOFF) {
-        const cliffMult = clamp(0.78 - 0.012 * (rank - ELITE_TE_CUTOFF - 1), 0.62, 0.78)
-        av *= cliffMult
+    // TE cliff: below the elite tier the pool converges toward streamable production, and raw VORP
+    // overstates it. Deliberately TE-only even though every position gets a `tierFloor` — the claim
+    // is a domain one about this position, not a curve fact. A receiver below a break is still a
+    // real starter, and applying a third curve-derived multiplier league-wide would double-count
+    // against scarcityMult and spreadNorm, which already read steepness position-wide.
+    //
+    // Distance below the break is measured in VORP — how much of the tier's edge over replacement a
+    // player keeps — because VORP is the currency the haircut multiplies.
+    if (position === "TE" && m.tierFloor != null) {
+      const floorVorp = m.tierFloor - m.replacementValue
+      const ownVorp = value - m.replacementValue
+      if (floorVorp > 0 && ownVorp < floorVorp) {
+        const retained = clamp(ownVorp / floorVorp, 0, 1)
+        av *= TE_CLIFF_MIN_MULT + (TE_CLIFF_MAX_MULT - TE_CLIFF_MIN_MULT) * retained
       }
     }
     return Number(av.toFixed(2))
@@ -243,16 +268,36 @@ export function estimateDemand(rosterPositions: string[]): Record<string, number
   return demand
 }
 
-// 1-indexed rank of `value` within a descending-sorted array (first position it would sort into).
-function rankInSortedDesc(sortedDesc: number[], value: number): number {
-  let lo = 0,
-    hi = sortedDesc.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (sortedDesc[mid] > value) lo = mid + 1
-    else hi = mid
+/**
+ * Find the largest genuine tier break in the startable region of a value curve.
+ *
+ * Returns the value of the last player ABOVE the break, or null when no gap in the region stands
+ * out enough to be called a tier. "Stands out" is measured against the median gap in the same
+ * region, so it scales with the position's own point spread rather than a hardcoded threshold.
+ *
+ * Related to `tiers.ts`, which labels every break on a board for display; this answers the narrower
+ * question of where the ONE decisive break sits and returns a value rather than labels. It uses a
+ * median-of-gaps threshold where `tiers.ts` uses mean + k·stdev, because a single dominant gap
+ * inflates the mean and the stdev it would then be tested against — the statistic that finds a
+ * cliff best is the one that cliff can't move. The two can disagree at the margin; if that ever
+ * shows up as a board tier boundary contradicting the TE haircut, unify them here.
+ */
+export function detectTierBreak(sortedDesc: number[], replacementRank: number): number | null {
+  // Search the startable pool only. A cliff below replacement level isn't a tier, it's the tail.
+  const depth = Math.min(sortedDesc.length - 1, Math.max(2, replacementRank))
+  if (depth < 2) return null
+
+  const gaps: number[] = []
+  let bestIdx = 0
+  for (let i = 0; i < depth; i++) {
+    const gap = sortedDesc[i] - sortedDesc[i + 1]
+    gaps.push(gap)
+    if (gap > gaps[bestIdx]) bestIdx = i
   }
-  return lo + 1
+
+  const typical = median(gaps.filter((g) => g > 0))
+  if (typical <= 0 || gaps[bestIdx] < typical * TIER_BREAK_RATIO) return null
+  return sortedDesc[bestIdx]
 }
 
 function valueAtRank(sortedDesc: number[], rank: number): number {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { buildValueModel } from "@/lib/engine/value"
+import { buildValueModel, detectTierBreak } from "@/lib/engine/value"
 import type { ValuedPlayer } from "@/lib/engine/lineup-optimizer"
 
 // These tests lock in the engine's core thesis: player value is relative to a
@@ -116,5 +116,58 @@ describe("VORP basics", () => {
     const single = model(CONFIG.single)
     expect(single.vorp("PUNTER", 50)).toBe(0)
     expect(single.adjustedVorp("PUNTER", 50)).toBe(0)
+  })
+})
+
+describe("tier breaks are read off the curve, not off a rank cutoff", () => {
+  it("finds no break in a smoothly decaying position", () => {
+    // Every curve has a largest gap. Only a gap that stands well clear of the typical one is a
+    // tier — otherwise we manufacture a cliff wherever the arithmetic happens to dip.
+    const smooth = Array.from({ length: 40 }, (_, i) => 20 - i * 0.55)
+    expect(detectTierBreak(smooth, 14)).toBeNull()
+  })
+
+  it("finds the break where the gap actually is", () => {
+    // Two elite players, then a real cliff, then a flat pack. The break belongs after index 1.
+    const ladder = [22, 21.5, 13, 12.6, 12.2, 11.9, 11.5, 11.2, 10.8, 10.5, 10.1, 9.8, 9.4, 9.1, 8.7]
+    expect(detectTierBreak(ladder, 14)).toBe(21.5)
+  })
+
+  it("moves the break when a third player joins the top tier", () => {
+    // The old rank-indexed cliff docked whoever came third regardless of how good they were. A
+    // player who genuinely belongs with the top two now stays with them, and the cliff slides.
+    const ladder = [22, 21.5, 21, 13, 12.6, 12.2, 11.9, 11.5, 11.2, 10.8, 10.5, 10.1, 9.8, 9.4, 9.1]
+    expect(detectTierBreak(ladder, 14)).toBe(21)
+  })
+
+  it("ignores a cliff that sits below the startable pool", () => {
+    // A collapse in the undraftable tail is not a tier, it's the end of the position.
+    const ladder = [20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 1, 0.5]
+    expect(detectTierBreak(ladder, 8)).toBeNull()
+  })
+
+  it("prices a third tight end on his own value once he belongs in the top tier", () => {
+    // Same TE3 in two worlds: one where he trails the elite pair, one where he's level with them.
+    // Under the rank cutoff both were docked identically, purely for arriving third.
+    const others = [...pool("QB", 40, 26, 0.35), ...pool("RB", 90, 26, 0.5), ...pool("WR", 90, 24, 0.28)]
+    const teList = (third: number) => [
+      { id: "TE1", position: "TE", value: 20 },
+      { id: "TE2", position: "TE", value: 19.5 },
+      { id: "TE3", position: "TE", value: third },
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `TEx${i}`, position: "TE", value: 11 - i * 0.2 })),
+    ]
+    const build = (third: number) =>
+      buildValueModel({
+        players: [...others, ...teList(third)],
+        rosters: [],
+        rosterPositions: ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "BN", "BN", "BN", "BN", "BN"],
+        totalRosters: TEAMS,
+      })
+    const elite = build(19)
+    const fringe = build(12)
+    // Level with the tier: no haircut, so he keeps the full VORP the model gives him.
+    expect(elite.adjustedVorp("TE", 19)).toBeGreaterThan(fringe.adjustedVorp("TE", 12))
+    // The break slid down to include him rather than cutting above him.
+    expect(elite.byPosition.TE.tierFloor).toBeLessThan(fringe.byPosition.TE.tierFloor!)
   })
 })

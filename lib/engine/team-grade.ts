@@ -106,7 +106,13 @@ const DEPTH_GAMMA = 0.75
 //
 // Weighted toward standing, because the axis label is a standing word ("Elite", "Strong"), with
 // enough value share left that a genuine outlier still earns a visible edge over the field.
-const STANDING_WEIGHT = 0.75
+//
+// Standing carries less than it used to, because the value curve underneath it got more
+// trustworthy (see market-blend.smoothValueLadder — value is no longer partly an artifact of the
+// ladder slot a player landed on). Lowering it further is the stated direction, but it's a
+// judgment call rather than something the calibration harness can fit, so it moves a step at a
+// time and only with a board comparison behind it.
+const STANDING_WEIGHT = 0.6
 
 // Fallback when no absolute reference is available (the projected-points path in the roster
 // panel, which has no value model behind it). Logistic on the log-ratio to the league median.

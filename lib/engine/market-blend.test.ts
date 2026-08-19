@@ -1,5 +1,36 @@
 import { describe, it, expect } from "vitest"
-import { blendWithMarketRank, type BlendEntry } from "@/lib/engine/market-blend"
+import { blendWithMarketRank, smoothValueLadder, type BlendEntry } from "@/lib/engine/market-blend"
+
+describe("smoothValueLadder", () => {
+  it("leaves the top of the ladder exactly alone", () => {
+    // The gap between the best and second-best player at a position is a fact about those two
+    // players. Averaging it away would be its own distortion.
+    const ladder = [100, 82, 78, 76, 74, 72, 70, 68, 66, 64, 62, 60]
+    const out = smoothValueLadder(ladder)
+    expect(out.slice(0, 5)).toEqual(ladder.slice(0, 5))
+  })
+
+  it("flattens single-slot noise deep in the tail", () => {
+    // A ladder that decays smoothly except for one accidental 20-point step at index 30. Nothing
+    // distinguishes those two players except which side of a rounding error they landed on.
+    const ladder = Array.from({ length: 60 }, (_, i) => 200 - i * 2)
+    for (let i = 31; i < 60; i++) ladder[i] -= 20
+    const rawStep = ladder[30] - ladder[31]
+    const out = smoothValueLadder(ladder)
+    expect(out[30] - out[31]).toBeLessThan(rawStep / 2)
+  })
+
+  it("never returns an increasing pair", () => {
+    const ladder = [100, 90, 91, 60, 62, 58, 40, 41, 30, 12, 14, 9, 8, 7, 3]
+    const out = smoothValueLadder(ladder)
+    for (let i = 1; i < out.length; i++) expect(out[i]).toBeLessThanOrEqual(out[i - 1])
+  })
+
+  it("passes ladders too short to smooth through untouched", () => {
+    expect(smoothValueLadder([10, 5])).toEqual([10, 5])
+    expect(smoothValueLadder([])).toEqual([])
+  })
+})
 
 describe("blendWithMarketRank", () => {
   const entries: BlendEntry[] = [
@@ -99,6 +130,24 @@ describe("blendWithMarketRank", () => {
     const fp: Record<string, number> = { a: 1, b: 2, c: 3, d: 4 }
     const out = blendWithMarketRank(entries, [(id) => partialAdp[id], (id) => fp[id]], 1, [1, 3])
     expect(out.get("a")).toBe(100) // fp rank 1 → rank-1 value, no dilution from missing adp
+  })
+
+  it("does not stamp an accidental ladder gap onto whoever the market ranks at that slot", () => {
+    // The model's own values decay smoothly, except for one 25-point step between slots 20 and 21
+    // that reflects nothing about either player. Under the raw ladder, whoever the market ranked
+    // 21st inherited that entire step as their market-implied value — a drop-off caused by the slot
+    // they landed in rather than by anything about them.
+    const values = Array.from({ length: 45 }, (_, i) => 300 - i * 3)
+    for (let i = 20; i < 45; i++) values[i] -= 25
+    const group: BlendEntry[] = values.map((value, i) => ({ id: `p${i}`, position: "WR", value }))
+    // Market order matches the model's, so the ONLY thing moving value here is the ladder shape.
+    const rankOf = (id: string) => Number(id.slice(1)) + 1
+
+    const out = blendWithMarketRank(group, [rankOf], 1)
+    const rawStep = values[19] - values[20]
+    expect(out.get("p19")! - out.get("p20")!).toBeLessThan(rawStep / 2)
+    // The market's ordering still survives — this is smoothing, not erasure.
+    for (let i = 1; i < 45; i++) expect(out.get(`p${i}`)!).toBeLessThanOrEqual(out.get(`p${i - 1}`)!)
   })
 
   it("uses whichever single source ranks a player when the other omits them", () => {

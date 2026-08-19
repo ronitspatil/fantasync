@@ -171,6 +171,59 @@ describe("trade verdict — surplus, not raw value swapped", () => {
   })
 })
 
+describe("verdict calibration — imbalance is counted once, and stakes matter", () => {
+  // A league-less pool, which is how both the standalone analyzer and the admin veto console build
+  // the model: no teams, so contextual value collapses to base value and the two surpluses are
+  // exact mirror images. This is the path every calibration constant is actually exercised on.
+  function contextFree() {
+    const players: TradePlayer[] = [
+      tp("star", "WR", null, 100),
+      tp("wr_a", "WR", null, 40),
+      tp("wr_b", "WR", null, 36),
+      tp("wr_c", "WR", null, 30),
+      tp("wr_d", "WR", null, 28),
+      tp("bench_a", "RB", null, 2),
+      tp("bench_b", "RB", null, 0.5),
+    ]
+    return buildTradeModel({ players, teams: [], superflex: false, dynastyLeague: false, rosterPositions: ONE_QB })
+  }
+
+  it("calls a near-even swap fair instead of falling through to a lean", () => {
+    // 30-for-28 is a 7% gap. It used to read "Favors them": the Fair branch additionally required
+    // both surpluses to be non-negative, which is unreachable when they're mirror images.
+    const ev = contextFree().evaluateTrade(["wr_c"], ["wr_d"], 1, 2)
+    expect(ev.verdict).toBe("Fair")
+  })
+
+  it("reports a one-quarter value gap as a lean, not twice it and not a fleecing", () => {
+    // 40-for-30. A real edge worth naming — but "lopsided" is a word for a fleecing, and this only
+    // earned it because the imbalance was being counted from both sides.
+    const ev = contextFree().evaluateTrade(["wr_a"], ["wr_c"], 1, 2)
+    expect(ev.verdict).toBe("Favors them")
+    const trueGap = (ev.aValueOut - ev.aValueIn) / ((ev.aValueOut + ev.aValueIn) / 2)
+    expect(Math.abs(ev.lean)).toBeCloseTo(trueGap, 2)
+  })
+
+  it("refuses to call a swap of two bench bodies lopsided", () => {
+    // 2.0-for-0.5 is a 120% relative gap and completely meaningless. Dividing by a denominator
+    // floored at 1 used to saturate lean at ±1 and report a fleecing.
+    const ev = contextFree().evaluateTrade(["bench_a"], ["bench_b"], 1, 2)
+    expect(ev.verdict).not.toMatch(/Lopsided/)
+  })
+
+  it("still calls a genuine fleecing lopsided", () => {
+    const ev = contextFree().evaluateTrade(["wr_d"], ["star"], 1, 2)
+    expect(ev.verdict).toBe("Lopsided — you win")
+  })
+
+  it("lets a true outlier price above the scale ceiling instead of pinning at 100", () => {
+    // Normalizing by the max handed the whole scale to one player and capped him at 100, which is
+    // what made consolidating two good players into one great one always read as a fleecing.
+    const m = contextFree()
+    expect(m.baseValue("star")).toBeGreaterThan(100)
+  })
+})
+
 describe("suggested trades", () => {
   it("surfaces the mutually-beneficial swap and keeps only win-wins", () => {
     const { players } = scenario()
